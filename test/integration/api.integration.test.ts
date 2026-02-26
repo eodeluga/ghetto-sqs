@@ -2,12 +2,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readEnvironment } from '@/config/environment'
 import { type RouteDependencies } from '@/routes'
 import { buildServer } from '@/server'
+import { type DatabaseHealthCheckerInterface } from '@/interfaces/database-health-checker.interface'
 import { HandleRegistrationService } from '@/services/handle-registration.service'
+import { HandleSecurityService } from '@/services/handle-security.service'
 import { MessageSignatureService } from '@/services/message-signature.service'
 import { QueueMessageService } from '@/services/queue-message.service'
+import { RequestRateLimiterService } from '@/services/request-rate-limiter.service'
 import { SignedRequestAuthService } from '@/services/signed-request-auth.service'
+import { SigningKeyCryptoService } from '@/services/signing-key-crypto.service'
 import { SystemHealthService } from '@/services/system-health.service'
-import { InMemoryQueueMessageRepository, InMemoryServiceHandleRepository } from '../support/in-memory-repositories'
+import {
+  InMemoryQueueMessageRepository,
+  InMemoryRequestSecurityRepository,
+  InMemoryServiceHandleRepository,
+} from '../support/in-memory-repositories'
 import { createSignedHeaders } from '../support/signature.util'
 
 type RegisteredCredentials = {
@@ -26,15 +34,46 @@ const createTestContext = async (): Promise<TestContext> => {
   const environment = readEnvironment()
   const messageSignatureService = new MessageSignatureService()
   const queueMessageRepository = new InMemoryQueueMessageRepository()
+  const requestRateLimiterService = new RequestRateLimiterService({
+    ...environment,
+    REQUEST_RATE_LIMIT_BAN_AFTER_VIOLATIONS: 2,
+    REQUEST_RATE_LIMIT_BAN_SECONDS: 2,
+    REQUEST_RATE_LIMIT_MAX_PER_WINDOW: 20,
+    REQUEST_RATE_LIMIT_WINDOW_SECONDS: 1,
+  })
+  const requestSecurityRepository = new InMemoryRequestSecurityRepository()
   const serviceHandleRepository = new InMemoryServiceHandleRepository()
-  const handleRegistrationService = new HandleRegistrationService(messageSignatureService, serviceHandleRepository)
-  const queueMessageService = new QueueMessageService(messageSignatureService, queueMessageRepository)
-  const signedRequestAuthService = new SignedRequestAuthService(environment, messageSignatureService, serviceHandleRepository)
+  const signingKeyCryptoService = new SigningKeyCryptoService(environment)
+  const handleRegistrationService = new HandleRegistrationService(
+    requestSecurityRepository,
+    serviceHandleRepository,
+    signingKeyCryptoService
+  )
+  const handleSecurityService = new HandleSecurityService(
+    requestSecurityRepository,
+    serviceHandleRepository,
+    signingKeyCryptoService
+  )
+  const queueMessageService = new QueueMessageService(messageSignatureService, queueMessageRepository, environment)
+  const signedRequestAuthService = new SignedRequestAuthService(
+    environment,
+    messageSignatureService,
+    requestRateLimiterService,
+    requestSecurityRepository,
+    serviceHandleRepository,
+    signingKeyCryptoService
+  )
+  const databaseHealthChecker: DatabaseHealthCheckerInterface = {
+    ping: () => {
+      return Promise.resolve()
+    },
+  }
   const routeDependencies: RouteDependencies = {
     handleRegistrationService,
+    handleSecurityService,
     queueMessageService,
     signedRequestAuthService,
-    systemHealthService: new SystemHealthService(),
+    systemHealthService: new SystemHealthService(databaseHealthChecker),
   }
   const fastify = buildServer(environment, routeDependencies)
 
@@ -110,6 +149,18 @@ describe('API integration', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
       status: 'ok',
+    })
+  })
+
+  it('returns ready status when dependencies are healthy', async () => {
+    const response = await testContext.fastify.inject({
+      method: 'GET',
+      path: '/health/ready',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      status: 'ready',
     })
   })
 
@@ -342,6 +393,133 @@ describe('API integration', () => {
     expect(response.json().code).toBe('unauthorised')
   })
 
+  it('rejects nonce replay within the accepted signature window', async () => {
+    const credentials = await registerHandle(testContext, {
+      label: 'worker-replay',
+    })
+    const enqueuePath = '/v1/queues/replay/messages'
+    const enqueuePayload = {
+      body: {
+        jobId: 'job-replay-1',
+      },
+      delaySeconds: 0,
+    }
+    const replayHeaders = createSignedHeaders({
+      body: enqueuePayload,
+      method: 'POST',
+      nonce: 'nonce-replay-test-0001',
+      requestPath: enqueuePath,
+      signingKey: credentials.signingKey,
+      userUuid: credentials.userUuid,
+    }, testContext.messageSignatureService)
+    const firstResponse = await testContext.fastify.inject({
+      headers: replayHeaders,
+      method: 'POST',
+      path: enqueuePath,
+      payload: enqueuePayload,
+    })
+
+    expect(firstResponse.statusCode).toBe(201)
+    const replayResponse = await testContext.fastify.inject({
+      headers: replayHeaders,
+      method: 'POST',
+      path: enqueuePath,
+      payload: enqueuePayload,
+    })
+
+    expect(replayResponse.statusCode).toBe(401)
+    expect(replayResponse.json().code).toBe('unauthorised')
+  })
+
+  it('rate limits repeated signed requests by handle and ip', async () => {
+    const credentials = await registerHandle(testContext, {
+      label: 'worker-rate-limit',
+    })
+    const receivePath = '/v1/queues/rate-limit/messages/receive?maxMessages=1'
+    let sawRateLimitResponse = false
+
+    for (let requestIndex = 0; requestIndex < 35; requestIndex += 1) {
+      const response = await signedInject(testContext, credentials, {
+        method: 'GET',
+        path: receivePath,
+      })
+
+      if (response.statusCode === 429) {
+        sawRateLimitResponse = true
+        break
+      }
+    }
+
+    expect(sawRateLimitResponse).toBe(true)
+  })
+
+  it('rotates signing keys and invalidates the previous key', async () => {
+    const credentials = await registerHandle(testContext, {
+      label: 'worker-rotate',
+    })
+    const rotatePath = '/v1/handles/keys/rotate'
+    const rotateResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: rotatePath,
+    })
+
+    expect(rotateResponse.statusCode).toBe(200)
+    expect(rotateResponse.json().keyVersion).toBe(2)
+    const enqueuePath = '/v1/queues/rotation/messages'
+    const enqueuePayload = {
+      body: {
+        jobId: 'job-rotation-1',
+      },
+      delaySeconds: 0,
+    }
+    const staleKeyResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: enqueuePayload,
+    })
+
+    expect(staleKeyResponse.statusCode).toBe(401)
+    const rotatedCredentials: RegisteredCredentials = {
+      ...credentials,
+      signingKey: rotateResponse.json().signingKey,
+    }
+    const rotatedKeyResponse = await signedInject(testContext, rotatedCredentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: enqueuePayload,
+    })
+
+    expect(rotatedKeyResponse.statusCode).toBe(201)
+  })
+
+  it('revokes handles and blocks further signed requests', async () => {
+    const credentials = await registerHandle(testContext, {
+      label: 'worker-revoke',
+    })
+    const revokePath = '/v1/handles/revoke'
+    const revokeResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: revokePath,
+    })
+
+    expect(revokeResponse.statusCode).toBe(200)
+    expect(revokeResponse.json().revoked).toBe(true)
+    const enqueuePath = '/v1/queues/revoked/messages'
+    const enqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          jobId: 'job-revoked-1',
+        },
+        delaySeconds: 0,
+      },
+    })
+
+    expect(enqueueResponse.statusCode).toBe(401)
+    expect(enqueueResponse.json().code).toBe('unauthorised')
+  })
+
   it('requires messageGroupId for FIFO queue messages', async () => {
     const credentials = await registerHandle(testContext, {
       label: 'worker-six',
@@ -429,6 +607,56 @@ describe('API integration', () => {
 
     expect(thirdReceiveResponse.statusCode).toBe(200)
     expect(thirdReceiveResponse.json().messages[0].messageId).toBe(secondMessageId)
+  })
+
+  it('does not deliver multiple FIFO messages from the same group concurrently', async () => {
+    const credentials = await registerHandle(testContext, {
+      label: 'worker-fifo-concurrency',
+    })
+    const enqueuePath = '/v1/queues/orders.fifo/messages'
+    const firstEnqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          orderId: 'order-concurrency-1',
+        },
+        delaySeconds: 0,
+        messageGroupId: 'group-concurrency',
+      },
+    })
+    const secondEnqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          orderId: 'order-concurrency-2',
+        },
+        delaySeconds: 0,
+        messageGroupId: 'group-concurrency',
+      },
+    })
+
+    expect(firstEnqueueResponse.statusCode).toBe(201)
+    expect(secondEnqueueResponse.statusCode).toBe(201)
+    const receivePath = '/v1/queues/orders.fifo/messages/receive?maxMessages=1&visibilityTimeoutSeconds=30'
+    const [firstReceiveResponse, secondReceiveResponse] = await Promise.all([
+      signedInject(testContext, credentials, {
+        method: 'GET',
+        path: receivePath,
+      }),
+      signedInject(testContext, credentials, {
+        method: 'GET',
+        path: receivePath,
+      }),
+    ])
+
+    expect(firstReceiveResponse.statusCode).toBe(200)
+    expect(secondReceiveResponse.statusCode).toBe(200)
+    const firstResponseMessageCount = firstReceiveResponse.json().messages.length
+    const secondResponseMessageCount = secondReceiveResponse.json().messages.length
+
+    expect(firstResponseMessageCount + secondResponseMessageCount).toBe(1)
   })
 
   it('deduplicates FIFO messages using messageDeduplicationId', async () => {
