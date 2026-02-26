@@ -9,7 +9,13 @@ const registerSystemRouteGroup = (
   const systemHealthHandler = new SystemHealthHandler(systemHealthService)
 
   fastify.get('/health', (request, reply) => {
-    return systemHealthHandler.getSystemHealth(request, reply)
+    return systemHealthHandler.getLiveness(request, reply)
+  })
+  fastify.get('/health/live', (request, reply) => {
+    return systemHealthHandler.getLiveness(request, reply)
+  })
+  fastify.get('/health/ready', (request, reply) => {
+    return systemHealthHandler.getReadiness(request, reply)
   })
 }
 
