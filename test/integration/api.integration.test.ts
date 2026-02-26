@@ -10,6 +10,11 @@ import { SystemHealthService } from '@/services/system-health.service'
 import { InMemoryQueueMessageRepository, InMemoryServiceHandleRepository } from '../support/in-memory-repositories'
 import { createSignedHeaders } from '../support/signature.util'
 
+type RegisteredCredentials = {
+  signingKey: string
+  userUuid: string
+}
+
 type TestContext = {
   fastify: ReturnType<typeof buildServer>
   messageSignatureService: MessageSignatureService
@@ -37,6 +42,45 @@ const createTestContext = async (): Promise<TestContext> => {
     fastify,
     messageSignatureService,
   }
+}
+
+const registerHandle = async (testContext: TestContext, label: string): Promise<RegisteredCredentials> => {
+  const registerResponse = await testContext.fastify.inject({
+    method: 'POST',
+    path: '/v1/handles/register',
+    payload: {
+      label,
+    },
+  })
+
+  expect(registerResponse.statusCode).toBe(201)
+
+  return registerResponse.json()
+}
+
+const signedInject = async (
+  testContext: TestContext,
+  credentials: RegisteredCredentials,
+  options: {
+    method: 'DELETE' | 'GET' | 'POST'
+    path: string
+    payload?: unknown
+  },
+): Promise<Awaited<ReturnType<typeof testContext.fastify.inject>>> => {
+  const headers = createSignedHeaders({
+    body: options.payload,
+    method: options.method,
+    requestPath: options.path,
+    signingKey: credentials.signingKey,
+    userUuid: credentials.userUuid,
+  }, testContext.messageSignatureService)
+
+  return testContext.fastify.inject({
+    headers,
+    method: options.method,
+    path: options.path,
+    payload: options.payload,
+  })
 }
 
 describe('API integration', () => {
@@ -97,14 +141,7 @@ describe('API integration', () => {
   })
 
   it('enqueues, receives, changes visibility, and deletes a message', async () => {
-    const registerResponse = await testContext.fastify.inject({
-      method: 'POST',
-      path: '/v1/handles/register',
-      payload: {
-        label: 'worker-two',
-      },
-    })
-    const credentials = registerResponse.json()
+    const credentials = await registerHandle(testContext, 'worker-two')
     const enqueuePath = '/v1/queues/jobs/messages'
     const enqueuePayload = {
       body: {
@@ -112,15 +149,7 @@ describe('API integration', () => {
       },
       delaySeconds: 0,
     }
-    const enqueueHeaders = createSignedHeaders({
-      body: enqueuePayload,
-      method: 'POST',
-      requestPath: enqueuePath,
-      signingKey: credentials.signingKey,
-      userUuid: credentials.userUuid,
-    }, testContext.messageSignatureService)
-    const enqueueResponse = await testContext.fastify.inject({
-      headers: enqueueHeaders,
+    const enqueueResponse = await signedInject(testContext, credentials, {
       method: 'POST',
       path: enqueuePath,
       payload: enqueuePayload,
@@ -129,14 +158,7 @@ describe('API integration', () => {
     expect(enqueueResponse.statusCode).toBe(201)
     const enqueueBody = enqueueResponse.json()
     const receivePath = '/v1/queues/jobs/messages/receive?maxMessages=1&visibilityTimeoutSeconds=30'
-    const receiveHeaders = createSignedHeaders({
-      method: 'GET',
-      requestPath: receivePath,
-      signingKey: credentials.signingKey,
-      userUuid: credentials.userUuid,
-    }, testContext.messageSignatureService)
-    const receiveResponse = await testContext.fastify.inject({
-      headers: receiveHeaders,
+    const receiveResponse = await signedInject(testContext, credentials, {
       method: 'GET',
       path: receivePath,
     })
@@ -151,15 +173,7 @@ describe('API integration', () => {
       receiptHandle: receiveBody.messages[0].receiptHandle,
       visibilityTimeoutSeconds: 1,
     }
-    const visibilityHeaders = createSignedHeaders({
-      body: visibilityPayload,
-      method: 'POST',
-      requestPath: visibilityPath,
-      signingKey: credentials.signingKey,
-      userUuid: credentials.userUuid,
-    }, testContext.messageSignatureService)
-    const visibilityResponse = await testContext.fastify.inject({
-      headers: visibilityHeaders,
+    const visibilityResponse = await signedInject(testContext, credentials, {
       method: 'POST',
       path: visibilityPath,
       payload: visibilityPayload,
@@ -170,15 +184,7 @@ describe('API integration', () => {
     const deletePayload = {
       receiptHandle: receiveBody.messages[0].receiptHandle,
     }
-    const deleteHeaders = createSignedHeaders({
-      body: deletePayload,
-      method: 'DELETE',
-      requestPath: deletePath,
-      signingKey: credentials.signingKey,
-      userUuid: credentials.userUuid,
-    }, testContext.messageSignatureService)
-    const deleteResponse = await testContext.fastify.inject({
-      headers: deleteHeaders,
+    const deleteResponse = await signedInject(testContext, credentials, {
       method: 'DELETE',
       path: deletePath,
       payload: deletePayload,
@@ -192,22 +198,8 @@ describe('API integration', () => {
   })
 
   it('enforces queue isolation between service handles', async () => {
-    const firstRegisterResponse = await testContext.fastify.inject({
-      method: 'POST',
-      path: '/v1/handles/register',
-      payload: {
-        label: 'worker-three',
-      },
-    })
-    const secondRegisterResponse = await testContext.fastify.inject({
-      method: 'POST',
-      path: '/v1/handles/register',
-      payload: {
-        label: 'worker-four',
-      },
-    })
-    const firstCredentials = firstRegisterResponse.json()
-    const secondCredentials = secondRegisterResponse.json()
+    const firstCredentials = await registerHandle(testContext, 'worker-three')
+    const secondCredentials = await registerHandle(testContext, 'worker-four')
     const enqueuePath = '/v1/queues/jobs/messages'
     const enqueuePayload = {
       body: {
@@ -215,30 +207,15 @@ describe('API integration', () => {
       },
       delaySeconds: 0,
     }
-    const enqueueHeaders = createSignedHeaders({
-      body: enqueuePayload,
-      method: 'POST',
-      requestPath: enqueuePath,
-      signingKey: firstCredentials.signingKey,
-      userUuid: firstCredentials.userUuid,
-    }, testContext.messageSignatureService)
 
-    await testContext.fastify.inject({
-      headers: enqueueHeaders,
+    await signedInject(testContext, firstCredentials, {
       method: 'POST',
       path: enqueuePath,
       payload: enqueuePayload,
     })
 
     const receivePath = '/v1/queues/jobs/messages/receive?maxMessages=1&visibilityTimeoutSeconds=30'
-    const secondReceiveHeaders = createSignedHeaders({
-      method: 'GET',
-      requestPath: receivePath,
-      signingKey: secondCredentials.signingKey,
-      userUuid: secondCredentials.userUuid,
-    }, testContext.messageSignatureService)
-    const secondReceiveResponse = await testContext.fastify.inject({
-      headers: secondReceiveHeaders,
+    const secondReceiveResponse = await signedInject(testContext, secondCredentials, {
       method: 'GET',
       path: receivePath,
     })
@@ -250,14 +227,7 @@ describe('API integration', () => {
   })
 
   it('rejects tampered signatures', async () => {
-    const registerResponse = await testContext.fastify.inject({
-      method: 'POST',
-      path: '/v1/handles/register',
-      payload: {
-        label: 'worker-five',
-      },
-    })
-    const credentials = registerResponse.json()
+    const credentials = await registerHandle(testContext, 'worker-five')
     const enqueuePath = '/v1/queues/jobs/messages'
     const enqueuePayload = {
       body: {
@@ -283,5 +253,172 @@ describe('API integration', () => {
 
     expect(response.statusCode).toBe(401)
     expect(response.json().code).toBe('unauthorised')
+  })
+
+  it('requires messageGroupId for FIFO queue messages', async () => {
+    const credentials = await registerHandle(testContext, 'worker-six')
+    const enqueuePath = '/v1/queues/orders.fifo/messages'
+    const enqueuePayload = {
+      body: {
+        jobId: 'job-fifo-1',
+      },
+      delaySeconds: 0,
+    }
+    const enqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: enqueuePayload,
+    })
+
+    expect(enqueueResponse.statusCode).toBe(400)
+    expect(enqueueResponse.json().code).toBe('validation_error')
+  })
+
+  it('preserves FIFO ordering within a message group', async () => {
+    const credentials = await registerHandle(testContext, 'worker-seven')
+    const enqueuePath = '/v1/queues/orders.fifo/messages'
+    const firstEnqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          orderId: 'order-1',
+        },
+        delaySeconds: 0,
+        messageGroupId: 'group-a',
+      },
+    })
+    const secondEnqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          orderId: 'order-2',
+        },
+        delaySeconds: 0,
+        messageGroupId: 'group-a',
+      },
+    })
+
+    expect(firstEnqueueResponse.statusCode).toBe(201)
+    expect(secondEnqueueResponse.statusCode).toBe(201)
+    const firstMessageId = firstEnqueueResponse.json().messageId
+    const secondMessageId = secondEnqueueResponse.json().messageId
+    const receivePath = '/v1/queues/orders.fifo/messages/receive?maxMessages=1&visibilityTimeoutSeconds=30'
+    const firstReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: receivePath,
+    })
+
+    expect(firstReceiveResponse.statusCode).toBe(200)
+    expect(firstReceiveResponse.json().messages[0].messageId).toBe(firstMessageId)
+    const secondReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: receivePath,
+    })
+
+    expect(secondReceiveResponse.statusCode).toBe(200)
+    expect(secondReceiveResponse.json()).toEqual({
+      messages: [],
+    })
+    const deletePath = `/v1/queues/orders.fifo/messages/${firstMessageId}`
+    const deleteResponse = await signedInject(testContext, credentials, {
+      method: 'DELETE',
+      path: deletePath,
+      payload: {
+        receiptHandle: firstReceiveResponse.json().messages[0].receiptHandle,
+      },
+    })
+
+    expect(deleteResponse.statusCode).toBe(200)
+    const thirdReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: receivePath,
+    })
+
+    expect(thirdReceiveResponse.statusCode).toBe(200)
+    expect(thirdReceiveResponse.json().messages[0].messageId).toBe(secondMessageId)
+  })
+
+  it('deduplicates FIFO messages using messageDeduplicationId', async () => {
+    const credentials = await registerHandle(testContext, 'worker-eight')
+    const enqueuePath = '/v1/queues/orders.fifo/messages'
+    const firstEnqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          orderId: 'order-3',
+        },
+        delaySeconds: 0,
+        messageDeduplicationId: 'dedup-order-3',
+        messageGroupId: 'group-b',
+      },
+    })
+    const secondEnqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          orderId: 'order-3-modified',
+        },
+        delaySeconds: 0,
+        messageDeduplicationId: 'dedup-order-3',
+        messageGroupId: 'group-b',
+      },
+    })
+
+    expect(firstEnqueueResponse.statusCode).toBe(201)
+    expect(firstEnqueueResponse.json().deduplicated).toBe(false)
+    expect(secondEnqueueResponse.statusCode).toBe(201)
+    expect(secondEnqueueResponse.json().deduplicated).toBe(true)
+    expect(secondEnqueueResponse.json().messageId).toBe(firstEnqueueResponse.json().messageId)
+  })
+
+  it('moves messages to DLQ after maxReceiveCount is reached', async () => {
+    const credentials = await registerHandle(testContext, 'worker-nine')
+    const enqueuePath = '/v1/queues/jobs/messages'
+    const enqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          jobId: 'job-dlq-1',
+        },
+        deadLetterQueueName: 'jobs-dlq',
+        delaySeconds: 0,
+        maxReceiveCount: 1,
+      },
+    })
+
+    expect(enqueueResponse.statusCode).toBe(201)
+    const sourceReceivePath = '/v1/queues/jobs/messages/receive?maxMessages=1&visibilityTimeoutSeconds=0'
+    const firstSourceReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: sourceReceivePath,
+    })
+
+    expect(firstSourceReceiveResponse.statusCode).toBe(200)
+    expect(firstSourceReceiveResponse.json().messages).toHaveLength(1)
+    const secondSourceReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: sourceReceivePath,
+    })
+
+    expect(secondSourceReceiveResponse.statusCode).toBe(200)
+    expect(secondSourceReceiveResponse.json()).toEqual({
+      messages: [],
+    })
+    const dlqReceivePath = '/v1/queues/jobs-dlq/messages/receive?maxMessages=1&visibilityTimeoutSeconds=30'
+    const dlqReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: dlqReceivePath,
+    })
+
+    expect(dlqReceiveResponse.statusCode).toBe(200)
+    expect(dlqReceiveResponse.json().messages).toHaveLength(1)
+    expect(dlqReceiveResponse.json().messages[0].body).toEqual({
+      jobId: 'job-dlq-1',
+    })
   })
 })

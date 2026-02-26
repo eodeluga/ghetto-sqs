@@ -1,17 +1,40 @@
 import { z } from 'zod'
 
+const queueNameSchema = z.string().max(80).min(1).regex(/^[A-Za-z0-9._-]+$/)
+
 const enqueueMessagePathParamsSchema = z.object({
-  queueName: z.string().max(80).min(1).regex(/^[A-Za-z0-9_-]+$/),
+  queueName: queueNameSchema,
 })
 
 const enqueueMessageRequestSchema = z.object({
   body: z.unknown(),
+  deadLetterQueueName: queueNameSchema.optional(),
   delaySeconds: z.number().int().max(900).min(0).default(0),
+  maxReceiveCount: z.number().int().max(1000).min(1).optional(),
+  messageDeduplicationId: z.string().max(128).min(1).optional(),
+  messageGroupId: z.string().max(128).min(1).optional(),
+}).superRefine((enqueueMessageRequest, context) => {
+  const deadLetterQueueNameDefined = enqueueMessageRequest.deadLetterQueueName !== undefined
+  const maxReceiveCountDefined = enqueueMessageRequest.maxReceiveCount !== undefined
+
+  if (deadLetterQueueNameDefined !== maxReceiveCountDefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'deadLetterQueueName and maxReceiveCount must be provided together',
+      path: ['deadLetterQueueName'],
+    })
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'deadLetterQueueName and maxReceiveCount must be provided together',
+      path: ['maxReceiveCount'],
+    })
+  }
 })
 
 const enqueueMessageResponseSchema = z.object({
+  deduplicated: z.boolean(),
   messageId: z.string().min(1),
-  queueName: z.string().max(80).min(1),
+  queueName: queueNameSchema,
   visibleAt: z.string().datetime(),
 })
 

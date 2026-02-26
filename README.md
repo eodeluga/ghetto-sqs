@@ -93,6 +93,26 @@ Queue endpoints require signed headers:
 - `x-gsqs-timestamp`
 - `x-gsqs-signature`
 
+## FIFO Support
+
+- FIFO queue names must end with `.fifo`.
+- FIFO enqueues require `messageGroupId`.
+- Optional FIFO deduplication uses `messageDeduplicationId`.
+- Deduplication window is 5 minutes per queue + service handle + deduplication ID.
+
+## DLQ Support
+
+DLQ policy is attached per message during enqueue:
+
+- `deadLetterQueueName`
+- `maxReceiveCount`
+
+Rules:
+
+- Both fields must be supplied together.
+- `deadLetterQueueName` must differ from source queue name.
+- When `receiveCount >= maxReceiveCount`, the message is moved to DLQ before next delivery attempt.
+
 ## Signing Example
 
 Signature canonical payload format:
@@ -138,7 +158,7 @@ const signRequest = (method: string, path: string, body: unknown, timestamp: str
 }
 ```
 
-## End-To-End Example
+## End-To-End Examples
 
 1. Register a handle:
 
@@ -148,13 +168,7 @@ curl -sS -X POST http://localhost:3000/v1/handles/register \
   -d '{"label":"payments-worker"}'
 ```
 
-Response example:
-
-```text
-{"userUuid":"...","signingKey":"..."}
-```
-
-2. Enqueue a message with signed headers:
+2. Enqueue standard queue message with DLQ policy:
 
 ```bash
 curl -sS -X POST http://localhost:3000/v1/queues/jobs/messages \
@@ -162,10 +176,21 @@ curl -sS -X POST http://localhost:3000/v1/queues/jobs/messages \
   -H "x-gsqs-user-uuid: <USER_UUID>" \
   -H "x-gsqs-timestamp: <TIMESTAMP_MS>" \
   -H "x-gsqs-signature: <SIGNATURE_HEX>" \
-  -d '{"body":{"jobId":"job-123"},"delaySeconds":0}'
+  -d '{"body":{"jobId":"job-123"},"delaySeconds":0,"deadLetterQueueName":"jobs-dlq","maxReceiveCount":3}'
 ```
 
-3. Receive messages:
+3. Enqueue FIFO queue message:
+
+```bash
+curl -sS -X POST http://localhost:3000/v1/queues/orders.fifo/messages \
+  -H 'content-type: application/json' \
+  -H "x-gsqs-user-uuid: <USER_UUID>" \
+  -H "x-gsqs-timestamp: <TIMESTAMP_MS>" \
+  -H "x-gsqs-signature: <SIGNATURE_HEX>" \
+  -d '{"body":{"orderId":"order-123"},"delaySeconds":0,"messageGroupId":"orders","messageDeduplicationId":"order-123-create"}'
+```
+
+4. Receive messages:
 
 ```bash
 curl -sS "http://localhost:3000/v1/queues/jobs/messages/receive?maxMessages=1&visibilityTimeoutSeconds=30" \
@@ -174,7 +199,7 @@ curl -sS "http://localhost:3000/v1/queues/jobs/messages/receive?maxMessages=1&vi
   -H "x-gsqs-signature: <SIGNATURE_HEX>"
 ```
 
-4. Delete the message with receipt handle:
+5. Delete a message with receipt handle:
 
 ```bash
 curl -sS -X DELETE http://localhost:3000/v1/queues/jobs/messages/<MESSAGE_ID> \

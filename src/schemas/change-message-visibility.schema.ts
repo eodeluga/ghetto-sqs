@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 const changeMessageVisibilityPathParamsSchema = z.object({
   messageId: z.string().min(1),
-  queueName: z.string().max(80).min(1).regex(/^[A-Za-z0-9_-]+$/),
+  queueName: z.string().max(80).min(1).regex(/^[A-Za-z0-9._-]+$/),
 })
 
 const changeMessageVisibilityRequestSchema = z.object({
