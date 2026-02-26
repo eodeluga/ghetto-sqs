@@ -23,6 +23,8 @@ class InMemoryServiceHandleRepository implements ServiceHandleRepositoryInterfac
   createServiceHandle(createServiceHandleInput: CreateServiceHandleInput): Promise<ServiceHandleRecord> {
     const serviceHandleRecord: ServiceHandleRecord = {
       createdAt: new Date(),
+      defaultMaxReceiveCount: createServiceHandleInput.defaultMaxReceiveCount,
+      defaultVisibilityTimeoutSeconds: createServiceHandleInput.defaultVisibilityTimeoutSeconds,
       id: randomUUID(),
       label: createServiceHandleInput.label,
       signingKey: createServiceHandleInput.signingKey,
@@ -47,6 +49,8 @@ class InMemoryServiceHandleRepository implements ServiceHandleRepositoryInterfac
 }
 
 class InMemoryQueueMessageRepository implements QueueMessageRepositoryInterface {
+  private nextCreatedAtTimestampMs = Date.now()
+
   private readonly queueMessagesById = new Map<string, QueueMessageRecord>()
 
   claimQueueMessageById(claimQueueMessageInput: ClaimQueueMessageInput): Promise<boolean> {
@@ -73,9 +77,11 @@ class InMemoryQueueMessageRepository implements QueueMessageRepositoryInterface 
   }
 
   createQueueMessage(createQueueMessageInput: CreateQueueMessageInput): Promise<QueueMessageRecord> {
+    const createdAt = new Date(this.nextCreatedAtTimestampMs)
+    this.nextCreatedAtTimestampMs += 1
     const queueMessageRecord: QueueMessageRecord = {
       body: createQueueMessageInput.body,
-      createdAt: new Date(),
+      createdAt,
       deadLetterQueueName: createQueueMessageInput.deadLetterQueueName,
       id: randomUUID(),
       maxReceiveCount: createQueueMessageInput.maxReceiveCount,
