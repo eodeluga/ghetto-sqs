@@ -13,22 +13,6 @@ const enqueueMessageRequestSchema = z.object({
   maxReceiveCount: z.number().int().max(1000).min(1).optional(),
   messageDeduplicationId: z.string().max(128).min(1).optional(),
   messageGroupId: z.string().max(128).min(1).optional(),
-}).superRefine((enqueueMessageRequest, context) => {
-  const deadLetterQueueNameDefined = enqueueMessageRequest.deadLetterQueueName !== undefined
-  const maxReceiveCountDefined = enqueueMessageRequest.maxReceiveCount !== undefined
-
-  if (deadLetterQueueNameDefined !== maxReceiveCountDefined) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'deadLetterQueueName and maxReceiveCount must be provided together',
-      path: ['deadLetterQueueName'],
-    })
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'deadLetterQueueName and maxReceiveCount must be provided together',
-      path: ['maxReceiveCount'],
-    })
-  }
 })
 
 const enqueueMessageResponseSchema = z.object({

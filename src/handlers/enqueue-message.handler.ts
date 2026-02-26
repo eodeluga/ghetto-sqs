@@ -27,6 +27,7 @@ class EnqueueMessageHandler {
 
     const enqueueMessageResponse = await this.queueMessageService.enqueueMessage({
       body: bodyParseResult.data.body,
+      defaultMaxReceiveCount: authenticatedServiceContext.defaultMaxReceiveCount,
       deadLetterQueueName: bodyParseResult.data.deadLetterQueueName,
       delaySeconds: bodyParseResult.data.delaySeconds,
       maxReceiveCount: bodyParseResult.data.maxReceiveCount,

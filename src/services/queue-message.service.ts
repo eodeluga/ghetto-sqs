@@ -25,6 +25,7 @@ type DeleteMessageInput = {
 
 type EnqueueMessageInput = {
   body: unknown
+  defaultMaxReceiveCount: number
   deadLetterQueueName?: string
   delaySeconds: number
   maxReceiveCount?: number
@@ -50,8 +51,8 @@ class QueueMessageService {
     const deadLetterQueueNameDefined = enqueueMessageInput.deadLetterQueueName !== undefined
     const maxReceiveCountDefined = enqueueMessageInput.maxReceiveCount !== undefined
 
-    if (deadLetterQueueNameDefined !== maxReceiveCountDefined) {
-      throw new ValidationError('DLQ policy requires both deadLetterQueueName and maxReceiveCount', undefined, ['body'])
+    if (!deadLetterQueueNameDefined && maxReceiveCountDefined) {
+      throw new ValidationError('maxReceiveCount requires deadLetterQueueName', undefined, ['body', 'maxReceiveCount'])
     }
 
     if (enqueueMessageInput.deadLetterQueueName === enqueueMessageInput.queueName) {
@@ -156,11 +157,14 @@ class QueueMessageService {
       }
     }
 
+    const effectiveMaxReceiveCount = enqueueMessageInput.deadLetterQueueName === undefined
+      ? null
+      : (enqueueMessageInput.maxReceiveCount ?? enqueueMessageInput.defaultMaxReceiveCount)
     const visibleAt = this.buildVisibilityDate(enqueueMessageInput.delaySeconds)
     const queueMessage = await this.queueMessageRepository.createQueueMessage({
       body: enqueueMessageInput.body,
       deadLetterQueueName: enqueueMessageInput.deadLetterQueueName ?? null,
-      maxReceiveCount: enqueueMessageInput.maxReceiveCount ?? null,
+      maxReceiveCount: effectiveMaxReceiveCount,
       messageDeduplicationId: enqueueMessageInput.messageDeduplicationId ?? null,
       messageGroupId: enqueueMessageInput.messageGroupId ?? null,
       queueName: enqueueMessageInput.queueName,

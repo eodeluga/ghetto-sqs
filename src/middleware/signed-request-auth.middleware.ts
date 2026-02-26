@@ -24,10 +24,8 @@ const createSignedRequestAuthPreHandler = (
       signature: serviceAuthHeaders['x-gsqs-signature'],
       timestamp: serviceAuthHeaders['x-gsqs-timestamp'],
       userUuid: serviceAuthHeaders['x-gsqs-user-uuid'],
-    }).then(() => {
-      request.authenticatedServiceContext = {
-        userUuid: serviceAuthHeaders['x-gsqs-user-uuid'],
-      }
+    }).then((authenticatedServiceContext) => {
+      request.authenticatedServiceContext = authenticatedServiceContext
       done()
     }).catch((error: unknown) => {
       done(error as Error)

@@ -29,12 +29,14 @@ model QueueMessage {
 }
 
 model ServiceHandle {
-  id             String   @id @default(auto()) @map("_id") @database.ObjectId
-  createdAt      DateTime @default(now())
-  label          String
-  signingKey     String
-  signingKeyHash String
-  userUuid       String   @unique
+  id                              String   @id @default(auto()) @map("_id") @database.ObjectId
+  createdAt                       DateTime @default(now())
+  defaultMaxReceiveCount          Int      @default(5)
+  defaultVisibilityTimeoutSeconds Int      @default(30)
+  label                           String
+  signingKey                      String
+  signingKeyHash                  String
+  userUuid                        String   @unique
 
   @@index([label])
 }

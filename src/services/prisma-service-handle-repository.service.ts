@@ -16,6 +16,8 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
   async createServiceHandle(createServiceHandleInput: CreateServiceHandleInput): Promise<ServiceHandleRecord> {
     return this.prismaClient.serviceHandle.create({
       data: {
+        defaultMaxReceiveCount: createServiceHandleInput.defaultMaxReceiveCount,
+        defaultVisibilityTimeoutSeconds: createServiceHandleInput.defaultVisibilityTimeoutSeconds,
         label: createServiceHandleInput.label,
         signingKey: createServiceHandleInput.signingKey,
         signingKeyHash: createServiceHandleInput.signingKeyHash,

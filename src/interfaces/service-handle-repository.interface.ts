@@ -1,4 +1,6 @@
 interface CreateServiceHandleInput {
+  defaultMaxReceiveCount: number
+  defaultVisibilityTimeoutSeconds: number
   label: string
   signingKey: string
   signingKeyHash: string
@@ -7,6 +9,8 @@ interface CreateServiceHandleInput {
 
 interface ServiceHandleRecord {
   createdAt: Date
+  defaultMaxReceiveCount: number
+  defaultVisibilityTimeoutSeconds: number
   id: string
   label: string
   signingKey: string

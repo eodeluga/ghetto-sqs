@@ -1,5 +1,6 @@
 import { type Environment } from '@/config/environment'
 import { UnauthorisedError } from '@/errors'
+import { type AuthenticatedServiceContext } from '@/interfaces/authenticated-service-context.interface'
 import { type ServiceHandleRepositoryInterface } from '@/interfaces/service-handle-repository.interface'
 import { MessageSignatureService } from '@/services/message-signature.service'
 import { PrismaServiceHandleRepositoryService } from '@/services/prisma-service-handle-repository.service'
@@ -37,7 +38,7 @@ class SignedRequestAuthService {
     private readonly serviceHandleRepository: ServiceHandleRepositoryInterface = new PrismaServiceHandleRepositoryService()
   ) {}
 
-  async verifySignedRequest(verifySignedRequestInput: VerifySignedRequestInput): Promise<void> {
+  async verifySignedRequest(verifySignedRequestInput: VerifySignedRequestInput): Promise<AuthenticatedServiceContext> {
     this.ensureTimestampIsValid(verifySignedRequestInput.timestamp)
     const serviceHandle = await this.serviceHandleRepository.getServiceHandleByUserUuid(verifySignedRequestInput.userUuid)
 
@@ -56,6 +57,12 @@ class SignedRequestAuthService {
 
     if (!signaturesMatch) {
       throw new UnauthorisedError('Invalid request signature')
+    }
+
+    return {
+      defaultMaxReceiveCount: serviceHandle.defaultMaxReceiveCount,
+      defaultVisibilityTimeoutSeconds: serviceHandle.defaultVisibilityTimeoutSeconds,
+      userUuid: serviceHandle.userUuid,
     }
   }
 }
