@@ -43,6 +43,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegisterHandleResponse'
+        '409':
+          description: Handle label already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         default:
           $ref: '#/components/responses/ErrorResponse'
   /v1/queues/{queueName}/messages:
@@ -381,6 +387,7 @@ components:
           type: string
           minLength: 3
           maxLength: 100
+          description: Unique handle label. Duplicate labels return 409 already_registered.
     RegisterHandleResponse:
       type: object
       additionalProperties: false

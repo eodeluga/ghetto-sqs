@@ -99,6 +99,7 @@ During `POST /v1/handles/register`, you can optionally set service-level default
 
 - `defaultVisibilityTimeoutSeconds` (default: `30`)
 - `defaultMaxReceiveCount` (default: `5`)
+- `label` must be unique per registered handle. Duplicate labels return `409 already_registered`.
 
 Terminology:
 
