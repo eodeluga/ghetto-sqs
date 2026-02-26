@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Ghetto SQS API
-  version: 0.2.0
+  version: 0.0.1
   summary: Lightweight SQS-compatible API with per-service queue isolation, FIFO support, and DLQ redrive
 servers:
   - url: http://localhost:3000
@@ -23,6 +23,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SystemHealthResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /health/live:
+    get:
+      tags:
+        - System
+      summary: Liveness check
+      responses:
+        '200':
+          description: Service process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemHealthResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /health/ready:
+    get:
+      tags:
+        - System
+      summary: Readiness check with dependency health validation
+      responses:
+        '200':
+          description: Service dependencies are ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemReadinessResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableErrorResponse'
         default:
           $ref: '#/components/responses/ErrorResponse'
   /v1/handles/register:
@@ -51,6 +81,46 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         default:
           $ref: '#/components/responses/ErrorResponse'
+  /v1/handles/keys/rotate:
+    post:
+      tags:
+        - Handles
+      summary: Rotate current handle signing key and revoke other active keys
+      security:
+        - SignedRequest: []
+      responses:
+        '401':
+          $ref: '#/components/responses/UnauthorisedErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedErrorResponse'
+        '200':
+          description: Signing key rotated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateSigningKeyResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/handles/revoke:
+    post:
+      tags:
+        - Handles
+      summary: Revoke current handle and all active signing keys
+      security:
+        - SignedRequest: []
+      responses:
+        '401':
+          $ref: '#/components/responses/UnauthorisedErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedErrorResponse'
+        '200':
+          description: Handle revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeHandleResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
   /v1/queues/{queueName}/messages:
     post:
       tags:
@@ -61,6 +131,7 @@ paths:
         FIFO deduplication is available through `messageDeduplicationId`.
         DLQ redrive can be configured per message via `deadLetterQueueName` and `maxReceiveCount`.
         If `maxReceiveCount` is omitted, the registered handle default is used.
+        Queue retention is enforced by server policy.
       security:
         - SignedRequest: []
       parameters:
@@ -72,6 +143,10 @@ paths:
             schema:
               $ref: '#/components/schemas/EnqueueMessageRequest'
       responses:
+        '401':
+          $ref: '#/components/responses/UnauthorisedErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedErrorResponse'
         '201':
           description: Message accepted
           content:
@@ -92,6 +167,10 @@ paths:
         - $ref: '#/components/parameters/MaxMessagesQuery'
         - $ref: '#/components/parameters/VisibilityTimeoutQuery'
       responses:
+        '401':
+          $ref: '#/components/responses/UnauthorisedErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedErrorResponse'
         '200':
           description: Messages received
           content:
@@ -117,6 +196,10 @@ paths:
             schema:
               $ref: '#/components/schemas/DeleteMessageRequest'
       responses:
+        '401':
+          $ref: '#/components/responses/UnauthorisedErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedErrorResponse'
         '200':
           description: Message deleted
           content:
@@ -130,6 +213,7 @@ paths:
       tags:
         - Queues
       summary: Change message visibility timeout using receipt handle
+      description: Visibility timeout changes are capped per message by server policy.
       security:
         - SignedRequest: []
       parameters:
@@ -142,6 +226,10 @@ paths:
             schema:
               $ref: '#/components/schemas/ChangeMessageVisibilityRequest'
       responses:
+        '401':
+          $ref: '#/components/responses/UnauthorisedErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedErrorResponse'
         '200':
           description: Visibility updated
           content:
@@ -157,7 +245,8 @@ components:
       in: header
       name: x-gsqs-signature
       description: |
-        Requests must include all three headers:
+        Requests must include all four headers:
+        - x-gsqs-nonce
         - x-gsqs-user-uuid
         - x-gsqs-timestamp
         - x-gsqs-signature
@@ -199,6 +288,24 @@ components:
   responses:
     ErrorResponse:
       description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimitedErrorResponse:
+      description: Request rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailableErrorResponse:
+      description: Service dependencies are not ready
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnauthorisedErrorResponse:
+      description: Signed request authentication failed
       content:
         application/json:
           schema:
@@ -365,6 +472,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReceivedMessage'
+    RevokeHandleResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - revoked
+        - revokedAt
+      properties:
+        revoked:
+          type: boolean
+          const: true
+        revokedAt:
+          type: string
+          format: date-time
     RegisterHandleRequest:
       type: object
       additionalProperties: false
@@ -411,6 +531,19 @@ components:
         userUuid:
           type: string
           format: uuid
+    RotateSigningKeyResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - keyVersion
+        - signingKey
+      properties:
+        keyVersion:
+          type: integer
+          minimum: 1
+        signingKey:
+          type: string
+          minLength: 1
     SystemHealthResponse:
       type: object
       additionalProperties: false
@@ -420,3 +553,13 @@ components:
         status:
           type: string
           const: ok
+    SystemReadinessResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ready
