@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { readEnvironment, type Environment } from '@/config/environment'
+import { registerErrorHandlerMiddleware } from '@/middleware/error-handler.middleware'
 import { registerRequestIdMiddleware } from '@/middleware/request-id.middleware'
 import { registerRoutes } from '@/routes'
 
@@ -11,6 +12,7 @@ const buildServer = (environment: Environment = readEnvironment()): FastifyInsta
   })
 
   registerRequestIdMiddleware(fastify)
+  registerErrorHandlerMiddleware(fastify)
   registerRoutes(fastify)
 
   return fastify

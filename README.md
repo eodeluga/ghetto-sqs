@@ -32,8 +32,21 @@ Copy `.env.example` values into your runtime environment:
 - `GET /health`
 - `POST /v1/handles/register`
 
+## Error Handling
+
+Application errors are thrown as typed classes under `src/errors` and surfaced by
+`src/middleware/error-handler.middleware.ts`.
+
+Standard error payload shape:
+
+- `code`
+- `details` (optional)
+- `message`
+- `requestId`
+
 ## Source Layout
 
+- `src/errors`
 - `src/handlers`
 - `src/middleware`
 - `src/route-groups`
