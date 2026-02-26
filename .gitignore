@@ -1,0 +1,10 @@
+AGENTS.md
+PLAN.md
+
+.DS_Store
+.env
+.env.*
+!.env.example
+
+dist
+node_modules

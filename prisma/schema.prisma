@@ -1,0 +1,25 @@
+datasource database {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model QueueMessage {
+  id              String   @id @default(auto()) @map("_id") @database.ObjectId
+  body            Json
+  createdAt       DateTime @default(now())
+  queueName       String
+  serviceUserUuid String
+  visibleAt       DateTime @default(now())
+}
+
+model ServiceHandle {
+  id             String   @id @default(auto()) @map("_id") @database.ObjectId
+  createdAt      DateTime @default(now())
+  label          String
+  signingKeyHash String
+  userUuid       String   @unique
+}
