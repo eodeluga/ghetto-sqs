@@ -19,7 +19,9 @@ const createSignedRequestAuthPreHandler = (
 
     signedRequestAuthService.verifySignedRequest({
       body: request.body,
+      clientIp: request.ip,
       method: request.method,
+      nonce: serviceAuthHeaders['x-gsqs-nonce'],
       requestPath: request.url,
       signature: serviceAuthHeaders['x-gsqs-signature'],
       timestamp: serviceAuthHeaders['x-gsqs-timestamp'],

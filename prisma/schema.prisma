@@ -20,6 +20,7 @@ model QueueMessage {
   receiveCount         Int      @default(0)
   serviceUserUuid      String
   sourceQueueName      String?
+  visibilityChangeCount Int      @default(0)
   visibleAt            DateTime @default(now())
 
   @@index([createdAt])
@@ -30,11 +31,47 @@ model QueueMessage {
 
 model ServiceHandle {
   id                              String   @id @default(auto()) @map("_id") @database.ObjectId
+  activeKeyVersion                Int      @default(1)
   createdAt                       DateTime @default(now())
   defaultMaxReceiveCount          Int      @default(5)
   defaultVisibilityTimeoutSeconds Int      @default(30)
   label                           String   @unique
-  signingKey                      String
-  signingKeyHash                  String
+  revokedAt                       DateTime?
   userUuid                        String   @unique
+}
+
+model ServiceSigningKey {
+  id                  String   @id @default(auto()) @map("_id") @database.ObjectId
+  createdAt           DateTime @default(now())
+  encryptedSigningKey String
+  keyVersion          Int
+  revokedAt           DateTime?
+  serviceUserUuid     String
+
+  @@index([serviceUserUuid, revokedAt, keyVersion])
+  @@unique([serviceUserUuid, keyVersion])
+}
+
+model SignedRequestNonce {
+  id              String   @id @default(auto()) @map("_id") @database.ObjectId
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+  nonce           String
+  serviceUserUuid String
+
+  @@index([expiresAt])
+  @@unique([serviceUserUuid, nonce])
+}
+
+model AuditEvent {
+  id                   String   @id @default(auto()) @map("_id") @database.ObjectId
+  action               String
+  actorServiceUserUuid String?
+  createdAt            DateTime @default(now())
+  details              Json?
+  targetId             String
+  targetType           String
+
+  @@index([createdAt])
+  @@index([targetType, targetId, createdAt])
 }

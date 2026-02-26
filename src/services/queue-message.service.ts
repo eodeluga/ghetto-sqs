@@ -1,4 +1,5 @@
 import { MessageNotFoundError, ValidationError } from '@/errors'
+import { type Environment, readEnvironment } from '@/config/environment'
 import { type QueueMessageRepositoryInterface } from '@/interfaces/queue-message-repository.interface'
 import { type ChangeMessageVisibilityResponse } from '@/schemas/change-message-visibility.schema'
 import { type DeleteMessageResponse } from '@/schemas/delete-message.schema'
@@ -42,9 +43,19 @@ type ReceiveMessagesInput = {
   visibilityTimeoutSeconds: number
 }
 
+type QueuePolicyConfiguration = {
+  maxVisibilityExtensions: number
+  messageRetentionSeconds: number
+  poisonMessageReceiveThreshold: number
+}
+
 class QueueMessageService {
   private buildVisibilityDate(secondsFromNow: number): Date {
     return new Date(Date.now() + (secondsFromNow * 1000))
+  }
+
+  private buildRetentionCutoffDate(): Date {
+    return new Date(Date.now() - (this.queuePolicyConfiguration.messageRetentionSeconds * 1000))
   }
 
   private ensureQueuePolicyIsValid(enqueueMessageInput: EnqueueMessageInput): void {
@@ -90,13 +101,37 @@ class QueueMessageService {
 
   constructor(
     private readonly messageSignatureService: MessageSignatureService = new MessageSignatureService(),
-    private readonly queueMessageRepository: QueueMessageRepositoryInterface = new PrismaQueueMessageRepositoryService()
-  ) {}
+    private readonly queueMessageRepository: QueueMessageRepositoryInterface = new PrismaQueueMessageRepositoryService(),
+    environment: Environment = readEnvironment()
+  ) {
+    this.queuePolicyConfiguration = {
+      maxVisibilityExtensions: environment.MAX_VISIBILITY_EXTENSIONS,
+      messageRetentionSeconds: environment.QUEUE_MESSAGE_RETENTION_SECONDS,
+      poisonMessageReceiveThreshold: environment.POISON_MESSAGE_RECEIVE_THRESHOLD,
+    }
+  }
+
+  private readonly queuePolicyConfiguration: QueuePolicyConfiguration
 
   async changeMessageVisibility(
     changeMessageVisibilityInput: ChangeMessageVisibilityInput
   ): Promise<ChangeMessageVisibilityResponse> {
     const receiptHandleHash = this.messageSignatureService.createReceiptHandleHash(changeMessageVisibilityInput.receiptHandle)
+    const queueMessageRecord = await this.queueMessageRepository.getQueueMessageByReceiptHandle(
+      changeMessageVisibilityInput.messageId,
+      changeMessageVisibilityInput.queueName,
+      receiptHandleHash,
+      changeMessageVisibilityInput.serviceUserUuid
+    )
+
+    if (queueMessageRecord === null) {
+      throw new MessageNotFoundError('Message not found for receipt handle')
+    }
+
+    if (queueMessageRecord.visibilityChangeCount >= this.queuePolicyConfiguration.maxVisibilityExtensions) {
+      throw new ValidationError('Maximum visibility timeout changes exceeded', undefined, ['body', 'visibilityTimeoutSeconds'])
+    }
+
     const nextVisibleAt = this.buildVisibilityDate(changeMessageVisibilityInput.visibilityTimeoutSeconds)
     const messageRecord = await this.queueMessageRepository.setQueueMessageVisibilityByReceiptHandle({
       messageId: changeMessageVisibilityInput.messageId,
@@ -136,6 +171,11 @@ class QueueMessageService {
   }
 
   async enqueueMessage(enqueueMessageInput: EnqueueMessageInput): Promise<EnqueueMessageResponse> {
+    await this.queueMessageRepository.purgeExpiredQueueMessages(
+      this.buildRetentionCutoffDate(),
+      enqueueMessageInput.queueName,
+      enqueueMessageInput.serviceUserUuid
+    )
     this.ensureQueuePolicyIsValid(enqueueMessageInput)
 
     if (enqueueMessageInput.messageDeduplicationId !== undefined) {
@@ -181,6 +221,11 @@ class QueueMessageService {
   }
 
   async receiveMessages(receiveMessagesInput: ReceiveMessagesInput): Promise<ReceiveMessagesResponse> {
+    await this.queueMessageRepository.purgeExpiredQueueMessages(
+      this.buildRetentionCutoffDate(),
+      receiveMessagesInput.queueName,
+      receiveMessagesInput.serviceUserUuid
+    )
     const claimableAt = new Date()
     const candidateLimit = Math.min(100, receiveMessagesInput.maxMessages * 10)
     const visibleCandidates = await this.queueMessageRepository.listVisibleQueueMessages({
@@ -203,6 +248,17 @@ class QueueMessageService {
           queueName: receiveMessagesInput.queueName,
           serviceUserUuid: receiveMessagesInput.serviceUserUuid,
         })
+        continue
+      }
+
+      if (visibleCandidate.deadLetterQueueName === null
+        && visibleCandidate.receiveCount >= this.queuePolicyConfiguration.poisonMessageReceiveThreshold
+      ) {
+        await this.queueMessageRepository.deleteQueueMessageById(
+          visibleCandidate.id,
+          receiveMessagesInput.queueName,
+          receiveMessagesInput.serviceUserUuid
+        )
         continue
       }
 
