@@ -1,4 +1,5 @@
 import { type FastifyReply, type FastifyRequest } from 'fastify'
+import { InternalServerError, ValidationError } from '@/errors'
 import {
   registerHandleRequestSchema,
   registerHandleResponseSchema,
@@ -12,20 +13,14 @@ class RegisterHandleHandler {
     const requestParseResult = registerHandleRequestSchema.safeParse(request.body)
 
     if (!requestParseResult.success) {
-      return reply.code(400).send({
-        error: 'Invalid request body',
-        issues: requestParseResult.error.flatten(),
-      })
+      throw new ValidationError('Invalid request body', requestParseResult.error.flatten(), ['body'])
     }
 
     const registerHandleResponse = this.handleRegistrationService.registerHandle(requestParseResult.data)
     const responseParseResult = registerHandleResponseSchema.safeParse(registerHandleResponse)
 
     if (!responseParseResult.success) {
-      return reply.code(500).send({
-        error: 'Invalid register-handle response payload',
-        issues: responseParseResult.error.flatten(),
-      })
+      throw new InternalServerError('Invalid register-handle response payload', responseParseResult.error.flatten(), ['response'])
     }
 
     return reply.code(201).send(responseParseResult.data)
