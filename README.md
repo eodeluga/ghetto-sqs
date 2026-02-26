@@ -93,6 +93,18 @@ Queue endpoints require signed headers:
 - `x-gsqs-timestamp`
 - `x-gsqs-signature`
 
+## Handle Defaults
+
+During `POST /v1/handles/register`, you can optionally set service-level defaults:
+
+- `defaultVisibilityTimeoutSeconds` (default: `30`)
+- `defaultMaxReceiveCount` (default: `5`)
+
+Terminology:
+
+- `visibility timeout` controls how long a received message stays hidden before it can reappear.
+- `max receive count` controls how many receives are allowed before DLQ redrive.
+
 ## FIFO Support
 
 - FIFO queue names must end with `.fifo`.
@@ -105,12 +117,12 @@ Queue endpoints require signed headers:
 DLQ policy is attached per message during enqueue:
 
 - `deadLetterQueueName`
-- `maxReceiveCount`
+- `maxReceiveCount` (optional override)
 
 Rules:
 
-- Both fields must be supplied together.
 - `deadLetterQueueName` must differ from source queue name.
+- If `maxReceiveCount` is omitted, the handle `defaultMaxReceiveCount` is used.
 - When `receiveCount >= maxReceiveCount`, the message is moved to DLQ before next delivery attempt.
 
 ## Signing Example
@@ -165,7 +177,7 @@ const signRequest = (method: string, path: string, body: unknown, timestamp: str
 ```bash
 curl -sS -X POST http://localhost:3000/v1/handles/register \
   -H 'content-type: application/json' \
-  -d '{"label":"payments-worker"}'
+  -d '{"label":"payments-worker","defaultVisibilityTimeoutSeconds":45,"defaultMaxReceiveCount":4}'
 ```
 
 2. Enqueue standard queue message with DLQ policy:
@@ -193,7 +205,7 @@ curl -sS -X POST http://localhost:3000/v1/queues/orders.fifo/messages \
 4. Receive messages:
 
 ```bash
-curl -sS "http://localhost:3000/v1/queues/jobs/messages/receive?maxMessages=1&visibilityTimeoutSeconds=30" \
+curl -sS "http://localhost:3000/v1/queues/jobs/messages/receive?maxMessages=1" \
   -H "x-gsqs-user-uuid: <USER_UUID>" \
   -H "x-gsqs-timestamp: <TIMESTAMP_MS>" \
   -H "x-gsqs-signature: <SIGNATURE_HEX>"

@@ -29,7 +29,7 @@ paths:
     post:
       tags:
         - Handles
-      summary: Register a service handle and issue signing credentials
+      summary: Register a service handle and issue signing credentials with service defaults
       requestBody:
         required: true
         content:
@@ -54,6 +54,7 @@ paths:
         FIFO queues are identified by `.fifo` suffix and require `messageGroupId`.
         FIFO deduplication is available through `messageDeduplicationId`.
         DLQ redrive can be configured per message via `deadLetterQueueName` and `maxReceiveCount`.
+        If `maxReceiveCount` is omitted, the registered handle default is used.
       security:
         - SignedRequest: []
       parameters:
@@ -188,7 +189,7 @@ components:
         type: integer
         minimum: 0
         maximum: 43200
-        default: 30
+      description: If omitted, the registered handle default visibility timeout is used.
   responses:
     ErrorResponse:
       description: Error response
@@ -258,6 +259,7 @@ components:
           minLength: 1
           maxLength: 80
           pattern: '^[A-Za-z0-9._-]+$'
+          description: Dead-letter queue target for this message redrive policy.
         delaySeconds:
           type: integer
           minimum: 0
@@ -267,6 +269,7 @@ components:
           type: integer
           minimum: 1
           maximum: 1000
+          description: If omitted while deadLetterQueueName is set, handle defaultMaxReceiveCount is used.
         messageDeduplicationId:
           type: string
           minLength: 1
@@ -362,6 +365,18 @@ components:
       required:
         - label
       properties:
+        defaultMaxReceiveCount:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 5
+          description: Default max receive count before DLQ redrive.
+        defaultVisibilityTimeoutSeconds:
+          type: integer
+          minimum: 0
+          maximum: 43200
+          default: 30
+          description: Default visibility timeout after receive when request does not override.
         label:
           type: string
           minLength: 3
@@ -370,9 +385,19 @@ components:
       type: object
       additionalProperties: false
       required:
+        - defaultMaxReceiveCount
+        - defaultVisibilityTimeoutSeconds
         - signingKey
         - userUuid
       properties:
+        defaultMaxReceiveCount:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        defaultVisibilityTimeoutSeconds:
+          type: integer
+          minimum: 0
+          maximum: 43200
         signingKey:
           type: string
           minLength: 1
