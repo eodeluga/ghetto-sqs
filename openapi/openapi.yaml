@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Ghetto SQS API
-  version: 0.1.0
-  summary: Lightweight SQS-compatible API with per-service queue isolation
+  version: 0.2.0
+  summary: Lightweight SQS-compatible API with per-service queue isolation, FIFO support, and DLQ redrive
 servers:
   - url: http://localhost:3000
 security: []
@@ -50,6 +50,10 @@ paths:
       tags:
         - Queues
       summary: Enqueue a message for an authenticated service handle
+      description: |
+        FIFO queues are identified by `.fifo` suffix and require `messageGroupId`.
+        FIFO deduplication is available through `messageDeduplicationId`.
+        DLQ redrive can be configured per message via `deadLetterQueueName` and `maxReceiveCount`.
       security:
         - SignedRequest: []
       parameters:
@@ -175,7 +179,7 @@ components:
         type: string
         minLength: 1
         maxLength: 80
-        pattern: '^[A-Za-z0-9_-]+$'
+        pattern: '^[A-Za-z0-9._-]+$'
     VisibilityTimeoutQuery:
       in: query
       name: visibilityTimeoutSeconds
@@ -249,19 +253,39 @@ components:
         - body
       properties:
         body: {}
+        deadLetterQueueName:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[A-Za-z0-9._-]+$'
         delaySeconds:
           type: integer
           minimum: 0
           maximum: 900
           default: 0
+        maxReceiveCount:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        messageDeduplicationId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        messageGroupId:
+          type: string
+          minLength: 1
+          maxLength: 128
     EnqueueMessageResponse:
       type: object
       additionalProperties: false
       required:
+        - deduplicated
         - messageId
         - queueName
         - visibleAt
       properties:
+        deduplicated:
+          type: boolean
         messageId:
           type: string
           minLength: 1
@@ -302,6 +326,10 @@ components:
         - visibleAt
       properties:
         body: {}
+        messageGroupId:
+          type: string
+          minLength: 1
+          maxLength: 128
         messageId:
           type: string
           minLength: 1
