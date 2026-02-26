@@ -9,14 +9,14 @@ import { HandleRegistrationService } from '@/services/handle-registration.servic
 class RegisterHandleHandler {
   constructor(private readonly handleRegistrationService: HandleRegistrationService = new HandleRegistrationService()) {}
 
-  registerHandle(request: FastifyRequest, reply: FastifyReply): FastifyReply {
+  async registerHandle(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
     const requestParseResult = registerHandleRequestSchema.safeParse(request.body)
 
     if (!requestParseResult.success) {
       throw new ValidationError('Invalid request body', requestParseResult.error.flatten(), ['body'])
     }
 
-    const registerHandleResponse = this.handleRegistrationService.registerHandle(requestParseResult.data)
+    const registerHandleResponse = await this.handleRegistrationService.registerHandle(requestParseResult.data)
     const responseParseResult = registerHandleResponseSchema.safeParse(registerHandleResponse)
 
     if (!responseParseResult.success) {

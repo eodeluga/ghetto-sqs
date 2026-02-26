@@ -8,18 +8,26 @@ generator client {
 }
 
 model QueueMessage {
-  id              String   @id @default(auto()) @map("_id") @database.ObjectId
-  body            Json
-  createdAt       DateTime @default(now())
-  queueName       String
-  serviceUserUuid String
-  visibleAt       DateTime @default(now())
+  id                String   @id @default(auto()) @map("_id") @database.ObjectId
+  body              Json
+  createdAt         DateTime @default(now())
+  queueName         String
+  receiptHandleHash String?
+  receiveCount      Int      @default(0)
+  serviceUserUuid   String
+  visibleAt         DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([queueName, serviceUserUuid, visibleAt])
 }
 
 model ServiceHandle {
   id             String   @id @default(auto()) @map("_id") @database.ObjectId
   createdAt      DateTime @default(now())
   label          String
+  signingKey     String
   signingKeyHash String
   userUuid       String   @unique
+
+  @@index([label])
 }
