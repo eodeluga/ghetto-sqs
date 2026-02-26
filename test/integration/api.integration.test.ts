@@ -144,6 +144,65 @@ describe('API integration', () => {
     expect(credentials.defaultVisibilityTimeoutSeconds).toBe(30)
   })
 
+  it('rejects duplicate handle registrations without changing the existing handle behaviour', async () => {
+    const credentials = await registerHandle(testContext, {
+      defaultMaxReceiveCount: 1,
+      defaultVisibilityTimeoutSeconds: 0,
+      label: 'worker-duplicate',
+    })
+    const duplicateRegistrationResponse = await testContext.fastify.inject({
+      method: 'POST',
+      path: '/v1/handles/register',
+      payload: {
+        defaultMaxReceiveCount: 9,
+        defaultVisibilityTimeoutSeconds: 30,
+        label: 'worker-duplicate',
+      },
+    })
+
+    expect(duplicateRegistrationResponse.statusCode).toBe(409)
+    expect(duplicateRegistrationResponse.json().code).toBe('already_registered')
+    const enqueuePath = '/v1/queues/duplicate/messages'
+    const enqueueResponse = await signedInject(testContext, credentials, {
+      method: 'POST',
+      path: enqueuePath,
+      payload: {
+        body: {
+          jobId: 'job-duplicate-1',
+        },
+        deadLetterQueueName: 'duplicate-dlq',
+        delaySeconds: 0,
+      },
+    })
+
+    expect(enqueueResponse.statusCode).toBe(201)
+    const sourceReceivePath = '/v1/queues/duplicate/messages/receive?maxMessages=1'
+    const firstSourceReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: sourceReceivePath,
+    })
+
+    expect(firstSourceReceiveResponse.statusCode).toBe(200)
+    expect(firstSourceReceiveResponse.json().messages).toHaveLength(1)
+    const secondSourceReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: sourceReceivePath,
+    })
+
+    expect(secondSourceReceiveResponse.statusCode).toBe(200)
+    expect(secondSourceReceiveResponse.json()).toEqual({
+      messages: [],
+    })
+    const dlqReceivePath = '/v1/queues/duplicate-dlq/messages/receive?maxMessages=1'
+    const dlqReceiveResponse = await signedInject(testContext, credentials, {
+      method: 'GET',
+      path: dlqReceivePath,
+    })
+
+    expect(dlqReceiveResponse.statusCode).toBe(200)
+    expect(dlqReceiveResponse.json().messages).toHaveLength(1)
+  })
+
   it('rejects queue operations without signed headers', async () => {
     const response = await testContext.fastify.inject({
       method: 'POST',
