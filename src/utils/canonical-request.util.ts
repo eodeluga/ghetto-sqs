@@ -1,6 +1,7 @@
 type CanonicalRequestInput = {
   body?: unknown
   method: string
+  nonce: string
   requestPath: string
   timestamp: string
 }
@@ -41,6 +42,7 @@ const buildCanonicalRequest = (canonicalRequestInput: CanonicalRequestInput): st
   return [
     canonicalRequestInput.method.toUpperCase(),
     canonicalRequestInput.requestPath,
+    canonicalRequestInput.nonce,
     canonicalRequestInput.timestamp,
     bodyPayload,
   ].join('\n')

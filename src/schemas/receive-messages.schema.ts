@@ -8,7 +8,7 @@ const receiveMessagesPathParamsSchema = z.object({
 
 const receiveMessagesQuerySchema = z.object({
   maxMessages: z.coerce.number().int().max(10).min(1).default(1),
-  visibilityTimeoutSeconds: z.coerce.number().int().max(43200).min(0).default(30),
+  visibilityTimeoutSeconds: z.coerce.number().int().max(43200).min(0).optional(),
 })
 
 const receivedMessageSchema = z.object({

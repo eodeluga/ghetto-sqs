@@ -27,6 +27,7 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
     receiveCount: number
     serviceUserUuid: string
     sourceQueueName: string | null
+    visibilityChangeCount: number
     visibleAt: Date
   }): QueueMessageRecord {
     return {
@@ -42,6 +43,7 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
       receiveCount: queueMessageRecord.receiveCount,
       serviceUserUuid: queueMessageRecord.serviceUserUuid,
       sourceQueueName: queueMessageRecord.sourceQueueName,
+      visibilityChangeCount: queueMessageRecord.visibilityChangeCount,
       visibleAt: queueMessageRecord.visibleAt,
     }
   }
@@ -84,6 +86,7 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         messageGroupId: createQueueMessageInput.messageGroupId,
         queueName: createQueueMessageInput.queueName,
         serviceUserUuid: createQueueMessageInput.serviceUserUuid,
+        visibilityChangeCount: 0,
         visibleAt: createQueueMessageInput.visibleAt,
       },
     })
@@ -106,6 +109,18 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
     return deleteResult.count === 1
   }
 
+  async deleteQueueMessageById(messageId: string, queueName: string, serviceUserUuid: string): Promise<boolean> {
+    const deleteResult = await this.prismaClient.queueMessage.deleteMany({
+      where: {
+        id: messageId,
+        queueName,
+        serviceUserUuid,
+      },
+    })
+
+    return deleteResult.count === 1
+  }
+
   async findRecentMessageByDeduplicationId(
     findRecentMessageByDeduplicationIdInput: FindRecentMessageByDeduplicationIdInput
   ): Promise<QueueMessageRecord | null> {
@@ -120,6 +135,28 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         messageDeduplicationId: findRecentMessageByDeduplicationIdInput.messageDeduplicationId,
         queueName: findRecentMessageByDeduplicationIdInput.queueName,
         serviceUserUuid: findRecentMessageByDeduplicationIdInput.serviceUserUuid,
+      },
+    })
+
+    if (queueMessageRecord === null) {
+      return null
+    }
+
+    return this.mapQueueMessageRecord(queueMessageRecord)
+  }
+
+  async getQueueMessageByReceiptHandle(
+    messageId: string,
+    queueName: string,
+    receiptHandleHash: string,
+    serviceUserUuid: string
+  ): Promise<QueueMessageRecord | null> {
+    const queueMessageRecord = await this.prismaClient.queueMessage.findFirst({
+      where: {
+        id: messageId,
+        queueName,
+        receiptHandleHash,
+        serviceUserUuid,
       },
     })
 
@@ -181,6 +218,7 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         receiptHandleHash: null,
         receiveCount: 0,
         sourceQueueName: moveQueueMessageToDeadLetterQueueInput.queueName,
+        visibilityChangeCount: 0,
         visibleAt: new Date(),
       },
       where: {
@@ -193,11 +231,28 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
     return updateResult.count === 1
   }
 
+  async purgeExpiredQueueMessages(olderThanOrEqualTo: Date, queueName: string, serviceUserUuid: string): Promise<number> {
+    const deleteResult = await this.prismaClient.queueMessage.deleteMany({
+      where: {
+        createdAt: {
+          lte: olderThanOrEqualTo,
+        },
+        queueName,
+        serviceUserUuid,
+      },
+    })
+
+    return deleteResult.count
+  }
+
   async setQueueMessageVisibilityByReceiptHandle(
     setQueueMessageVisibilityByReceiptHandleInput: SetQueueMessageVisibilityByReceiptHandleInput
   ): Promise<QueueMessageRecord | null> {
     const updateResult = await this.prismaClient.queueMessage.updateMany({
       data: {
+        visibilityChangeCount: {
+          increment: 1,
+        },
         visibleAt: setQueueMessageVisibilityByReceiptHandleInput.visibleAt,
       },
       where: {

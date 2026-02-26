@@ -29,7 +29,8 @@ class ReceiveMessagesHandler {
       maxMessages: queryParseResult.data.maxMessages,
       queueName: pathParamsParseResult.data.queueName,
       serviceUserUuid: authenticatedServiceContext.userUuid,
-      visibilityTimeoutSeconds: queryParseResult.data.visibilityTimeoutSeconds,
+      visibilityTimeoutSeconds: queryParseResult.data.visibilityTimeoutSeconds
+        ?? authenticatedServiceContext.defaultVisibilityTimeoutSeconds,
     })
     const responseParseResult = receiveMessagesResponseSchema.safeParse(receiveMessagesResponse)
 
