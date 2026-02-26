@@ -2,9 +2,12 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { readEnvironment, type Environment } from '@/config/environment'
 import { registerErrorHandlerMiddleware } from '@/middleware/error-handler.middleware'
 import { registerRequestIdMiddleware } from '@/middleware/request-id.middleware'
-import { registerRoutes } from '@/routes'
+import { registerRoutes, type RouteDependencies } from '@/routes'
 
-const buildServer = (environment: Environment = readEnvironment()): FastifyInstance => {
+const buildServer = (
+  environment: Environment = readEnvironment(),
+  routeDependencies?: RouteDependencies
+): FastifyInstance => {
   const fastify = Fastify({
     logger: {
       level: environment.LOG_LEVEL,
@@ -13,7 +16,7 @@ const buildServer = (environment: Environment = readEnvironment()): FastifyInsta
 
   registerRequestIdMiddleware(fastify)
   registerErrorHandlerMiddleware(fastify)
-  registerRoutes(fastify)
+  registerRoutes(fastify, environment, routeDependencies)
 
   return fastify
 }

@@ -1,4 +1,4 @@
-import { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
+import { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import { ZodError } from 'zod'
 import { BaseError, InternalServerError, ValidationError } from '@/errors'
 import { errorResponseSchema, type ErrorResponse } from '@/schemas/error-response.schema'
@@ -24,7 +24,7 @@ const createErrorResponse = (baseError: BaseError, requestId: string): ErrorResp
   }
 }
 
-const mapToBaseError = (error: FastifyError): BaseError => {
+const mapToBaseError = (error: unknown): BaseError => {
   if (error instanceof BaseError) {
     return error
   }
@@ -33,11 +33,15 @@ const mapToBaseError = (error: FastifyError): BaseError => {
     return new ValidationError('Validation failed', error.flatten())
   }
 
-  return new InternalServerError('Unexpected server error', error.message)
+  if (error instanceof Error) {
+    return new InternalServerError('Unexpected server error', error.message)
+  }
+
+  return new InternalServerError('Unexpected server error', error)
 }
 
 const registerErrorHandlerMiddleware = (fastify: FastifyInstance): void => {
-  fastify.setErrorHandler((error: FastifyError, request: FastifyRequest, reply: FastifyReply): FastifyReply => {
+  fastify.setErrorHandler((error: unknown, request: FastifyRequest, reply: FastifyReply): FastifyReply => {
     const baseError = mapToBaseError(error)
     const errorResponse = createErrorResponse(baseError, request.id)
 

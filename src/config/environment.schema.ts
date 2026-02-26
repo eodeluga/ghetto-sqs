@@ -5,6 +5,7 @@ const environmentSchema = z.object({
   HOST: z.string().min(1).default('0.0.0.0'),
   LOG_LEVEL: z.enum(['debug', 'error', 'fatal', 'info', 'trace', 'warn']).default('info'),
   PORT: z.coerce.number().int().positive().default(3000),
+  SIGNATURE_TOLERANCE_SECONDS: z.coerce.number().int().max(3600).min(1).default(300),
 })
 
 type Environment = z.infer<typeof environmentSchema>
