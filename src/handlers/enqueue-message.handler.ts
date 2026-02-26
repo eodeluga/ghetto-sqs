@@ -27,7 +27,11 @@ class EnqueueMessageHandler {
 
     const enqueueMessageResponse = await this.queueMessageService.enqueueMessage({
       body: bodyParseResult.data.body,
+      deadLetterQueueName: bodyParseResult.data.deadLetterQueueName,
       delaySeconds: bodyParseResult.data.delaySeconds,
+      maxReceiveCount: bodyParseResult.data.maxReceiveCount,
+      messageDeduplicationId: bodyParseResult.data.messageDeduplicationId,
+      messageGroupId: bodyParseResult.data.messageGroupId,
       queueName: pathParamsParseResult.data.queueName,
       serviceUserUuid: authenticatedServiceContext.userUuid,
     })

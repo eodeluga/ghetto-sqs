@@ -1,4 +1,4 @@
-import { MessageNotFoundError } from '@/errors'
+import { MessageNotFoundError, ValidationError } from '@/errors'
 import { type QueueMessageRepositoryInterface } from '@/interfaces/queue-message-repository.interface'
 import { type ChangeMessageVisibilityResponse } from '@/schemas/change-message-visibility.schema'
 import { type DeleteMessageResponse } from '@/schemas/delete-message.schema'
@@ -6,6 +6,7 @@ import { type EnqueueMessageResponse } from '@/schemas/enqueue-message.schema'
 import { type ReceiveMessagesResponse } from '@/schemas/receive-messages.schema'
 import { MessageSignatureService } from '@/services/message-signature.service'
 import { PrismaQueueMessageRepositoryService } from '@/services/prisma-queue-message-repository.service'
+import { isFifoQueue } from '@/utils/is-fifo-queue.util'
 
 type ChangeMessageVisibilityInput = {
   messageId: string
@@ -24,7 +25,11 @@ type DeleteMessageInput = {
 
 type EnqueueMessageInput = {
   body: unknown
+  deadLetterQueueName?: string
   delaySeconds: number
+  maxReceiveCount?: number
+  messageDeduplicationId?: string
+  messageGroupId?: string
   queueName: string
   serviceUserUuid: string
 }
@@ -39,6 +44,47 @@ type ReceiveMessagesInput = {
 class QueueMessageService {
   private buildVisibilityDate(secondsFromNow: number): Date {
     return new Date(Date.now() + (secondsFromNow * 1000))
+  }
+
+  private ensureQueuePolicyIsValid(enqueueMessageInput: EnqueueMessageInput): void {
+    const deadLetterQueueNameDefined = enqueueMessageInput.deadLetterQueueName !== undefined
+    const maxReceiveCountDefined = enqueueMessageInput.maxReceiveCount !== undefined
+
+    if (deadLetterQueueNameDefined !== maxReceiveCountDefined) {
+      throw new ValidationError('DLQ policy requires both deadLetterQueueName and maxReceiveCount', undefined, ['body'])
+    }
+
+    if (enqueueMessageInput.deadLetterQueueName === enqueueMessageInput.queueName) {
+      throw new ValidationError('deadLetterQueueName must differ from queueName', undefined, ['body', 'deadLetterQueueName'])
+    }
+
+    const fifoQueue = isFifoQueue(enqueueMessageInput.queueName)
+
+    if (fifoQueue && enqueueMessageInput.messageGroupId === undefined) {
+      throw new ValidationError('FIFO queue requires messageGroupId', undefined, ['body', 'messageGroupId'])
+    }
+
+    if (!fifoQueue && enqueueMessageInput.messageGroupId !== undefined) {
+      throw new ValidationError('messageGroupId can only be used with FIFO queues', undefined, ['body', 'messageGroupId'])
+    }
+
+    if (!fifoQueue && enqueueMessageInput.messageDeduplicationId !== undefined) {
+      throw new ValidationError(
+        'messageDeduplicationId can only be used with FIFO queues',
+        undefined,
+        ['body', 'messageDeduplicationId']
+      )
+    }
+  }
+
+  private isDlqRedriveCandidate(queueMessageRecord: {
+    deadLetterQueueName: string | null
+    maxReceiveCount: number | null
+    receiveCount: number
+  }): boolean {
+    return queueMessageRecord.deadLetterQueueName !== null
+      && queueMessageRecord.maxReceiveCount !== null
+      && queueMessageRecord.receiveCount >= queueMessageRecord.maxReceiveCount
   }
 
   constructor(
@@ -89,15 +135,41 @@ class QueueMessageService {
   }
 
   async enqueueMessage(enqueueMessageInput: EnqueueMessageInput): Promise<EnqueueMessageResponse> {
+    this.ensureQueuePolicyIsValid(enqueueMessageInput)
+
+    if (enqueueMessageInput.messageDeduplicationId !== undefined) {
+      const deduplicationWindowStart = new Date(Date.now() - (5 * 60 * 1000))
+      const existingQueueMessage = await this.queueMessageRepository.findRecentMessageByDeduplicationId({
+        createdAtOrAfter: deduplicationWindowStart,
+        messageDeduplicationId: enqueueMessageInput.messageDeduplicationId,
+        queueName: enqueueMessageInput.queueName,
+        serviceUserUuid: enqueueMessageInput.serviceUserUuid,
+      })
+
+      if (existingQueueMessage !== null) {
+        return {
+          deduplicated: true,
+          messageId: existingQueueMessage.id,
+          queueName: existingQueueMessage.queueName,
+          visibleAt: existingQueueMessage.visibleAt.toISOString(),
+        }
+      }
+    }
+
     const visibleAt = this.buildVisibilityDate(enqueueMessageInput.delaySeconds)
     const queueMessage = await this.queueMessageRepository.createQueueMessage({
       body: enqueueMessageInput.body,
+      deadLetterQueueName: enqueueMessageInput.deadLetterQueueName ?? null,
+      maxReceiveCount: enqueueMessageInput.maxReceiveCount ?? null,
+      messageDeduplicationId: enqueueMessageInput.messageDeduplicationId ?? null,
+      messageGroupId: enqueueMessageInput.messageGroupId ?? null,
       queueName: enqueueMessageInput.queueName,
       serviceUserUuid: enqueueMessageInput.serviceUserUuid,
       visibleAt,
     })
 
     return {
+      deduplicated: false,
       messageId: queueMessage.id,
       queueName: queueMessage.queueName,
       visibleAt: queueMessage.visibleAt.toISOString(),
@@ -106,8 +178,9 @@ class QueueMessageService {
 
   async receiveMessages(receiveMessagesInput: ReceiveMessagesInput): Promise<ReceiveMessagesResponse> {
     const claimableAt = new Date()
+    const candidateLimit = Math.min(100, receiveMessagesInput.maxMessages * 10)
     const visibleCandidates = await this.queueMessageRepository.listVisibleQueueMessages({
-      limit: receiveMessagesInput.maxMessages * 3,
+      limit: candidateLimit,
       queueName: receiveMessagesInput.queueName,
       serviceUserUuid: receiveMessagesInput.serviceUserUuid,
       visibleAtOrBefore: claimableAt,
@@ -117,6 +190,30 @@ class QueueMessageService {
     for (const visibleCandidate of visibleCandidates) {
       if (receivedMessages.length >= receiveMessagesInput.maxMessages) {
         break
+      }
+
+      if (this.isDlqRedriveCandidate(visibleCandidate)) {
+        await this.queueMessageRepository.moveQueueMessageToDeadLetterQueue({
+          deadLetterQueueName: visibleCandidate.deadLetterQueueName as string,
+          messageId: visibleCandidate.id,
+          queueName: receiveMessagesInput.queueName,
+          serviceUserUuid: receiveMessagesInput.serviceUserUuid,
+        })
+        continue
+      }
+
+      if (isFifoQueue(receiveMessagesInput.queueName) && visibleCandidate.messageGroupId !== null) {
+        const inflightInSameGroup = await this.queueMessageRepository.hasInflightMessageInFifoGroup({
+          createdAtBefore: visibleCandidate.createdAt,
+          messageGroupId: visibleCandidate.messageGroupId,
+          queueName: receiveMessagesInput.queueName,
+          serviceUserUuid: receiveMessagesInput.serviceUserUuid,
+          visibleAtAfter: claimableAt,
+        })
+
+        if (inflightInSameGroup) {
+          continue
+        }
       }
 
       const nextReceiptHandle = this.messageSignatureService.createReceiptHandle()
@@ -134,6 +231,7 @@ class QueueMessageService {
       if (messageClaimed) {
         receivedMessages.push({
           body: visibleCandidate.body,
+          messageGroupId: visibleCandidate.messageGroupId ?? undefined,
           messageId: visibleCandidate.id,
           queueName: visibleCandidate.queueName,
           receiptHandle: nextReceiptHandle,

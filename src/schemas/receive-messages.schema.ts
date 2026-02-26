@@ -1,7 +1,9 @@
 import { z } from 'zod'
 
+const queueNameSchema = z.string().max(80).min(1).regex(/^[A-Za-z0-9._-]+$/)
+
 const receiveMessagesPathParamsSchema = z.object({
-  queueName: z.string().max(80).min(1).regex(/^[A-Za-z0-9_-]+$/),
+  queueName: queueNameSchema,
 })
 
 const receiveMessagesQuerySchema = z.object({
@@ -11,8 +13,9 @@ const receiveMessagesQuerySchema = z.object({
 
 const receivedMessageSchema = z.object({
   body: z.unknown(),
+  messageGroupId: z.string().max(128).min(1).optional(),
   messageId: z.string().min(1),
-  queueName: z.string().max(80).min(1),
+  queueName: queueNameSchema,
   receiptHandle: z.string().min(1),
   receiveCount: z.number().int().min(1),
   visibleAt: z.string().datetime(),
