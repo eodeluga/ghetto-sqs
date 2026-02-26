@@ -1,0 +1,362 @@
+openapi: 3.1.0
+info:
+  title: Ghetto SQS API
+  version: 0.1.0
+  summary: Lightweight SQS-compatible API with per-service queue isolation
+servers:
+  - url: http://localhost:3000
+security: []
+tags:
+  - name: System
+  - name: Handles
+  - name: Queues
+paths:
+  /health:
+    get:
+      tags:
+        - System
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemHealthResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/handles/register:
+    post:
+      tags:
+        - Handles
+      summary: Register a service handle and issue signing credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterHandleRequest'
+      responses:
+        '201':
+          description: Handle created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterHandleResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/queues/{queueName}/messages:
+    post:
+      tags:
+        - Queues
+      summary: Enqueue a message for an authenticated service handle
+      security:
+        - SignedRequest: []
+      parameters:
+        - $ref: '#/components/parameters/QueueNamePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnqueueMessageRequest'
+      responses:
+        '201':
+          description: Message accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnqueueMessageResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/queues/{queueName}/messages/receive:
+    get:
+      tags:
+        - Queues
+      summary: Receive visible messages from the authenticated service queue
+      security:
+        - SignedRequest: []
+      parameters:
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/MaxMessagesQuery'
+        - $ref: '#/components/parameters/VisibilityTimeoutQuery'
+      responses:
+        '200':
+          description: Messages received
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiveMessagesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/queues/{queueName}/messages/{messageId}:
+    delete:
+      tags:
+        - Queues
+      summary: Delete a message using its receipt handle
+      security:
+        - SignedRequest: []
+      parameters:
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/MessageIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteMessageRequest'
+      responses:
+        '200':
+          description: Message deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteMessageResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/queues/{queueName}/messages/{messageId}/visibility:
+    post:
+      tags:
+        - Queues
+      summary: Change message visibility timeout using receipt handle
+      security:
+        - SignedRequest: []
+      parameters:
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/MessageIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeMessageVisibilityRequest'
+      responses:
+        '200':
+          description: Visibility updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeMessageVisibilityResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+components:
+  securitySchemes:
+    SignedRequest:
+      type: apiKey
+      in: header
+      name: x-gsqs-signature
+      description: |
+        Requests must include all three headers:
+        - x-gsqs-user-uuid
+        - x-gsqs-timestamp
+        - x-gsqs-signature
+  parameters:
+    MessageIdPath:
+      in: path
+      name: messageId
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    MaxMessagesQuery:
+      in: query
+      name: maxMessages
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 10
+        default: 1
+    QueueNamePath:
+      in: path
+      name: queueName
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 80
+        pattern: '^[A-Za-z0-9_-]+$'
+    VisibilityTimeoutQuery:
+      in: query
+      name: visibilityTimeoutSeconds
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 43200
+        default: 30
+  responses:
+    ErrorResponse:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ChangeMessageVisibilityRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - receiptHandle
+        - visibilityTimeoutSeconds
+      properties:
+        receiptHandle:
+          type: string
+          minLength: 1
+        visibilityTimeoutSeconds:
+          type: integer
+          minimum: 0
+          maximum: 43200
+    ChangeMessageVisibilityResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - messageId
+        - visibleAt
+      properties:
+        messageId:
+          type: string
+          minLength: 1
+        visibleAt:
+          type: string
+          format: date-time
+    DeleteMessageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - receiptHandle
+      properties:
+        receiptHandle:
+          type: string
+          minLength: 1
+    DeleteMessageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - deleted
+        - messageId
+      properties:
+        deleted:
+          type: boolean
+          const: true
+        messageId:
+          type: string
+          minLength: 1
+    EnqueueMessageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+      properties:
+        body: {}
+        delaySeconds:
+          type: integer
+          minimum: 0
+          maximum: 900
+          default: 0
+    EnqueueMessageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - messageId
+        - queueName
+        - visibleAt
+      properties:
+        messageId:
+          type: string
+          minLength: 1
+        queueName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        visibleAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - requestId
+      properties:
+        code:
+          type: string
+          minLength: 1
+        details: {}
+        message:
+          type: string
+          minLength: 1
+        requestId:
+          type: string
+          minLength: 1
+    ReceivedMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+        - messageId
+        - queueName
+        - receiptHandle
+        - receiveCount
+        - visibleAt
+      properties:
+        body: {}
+        messageId:
+          type: string
+          minLength: 1
+        queueName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        receiptHandle:
+          type: string
+          minLength: 1
+        receiveCount:
+          type: integer
+          minimum: 1
+        visibleAt:
+          type: string
+          format: date-time
+    ReceiveMessagesResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReceivedMessage'
+    RegisterHandleRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - label
+      properties:
+        label:
+          type: string
+          minLength: 3
+          maxLength: 100
+    RegisterHandleResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - signingKey
+        - userUuid
+      properties:
+        signingKey:
+          type: string
+          minLength: 1
+        userUuid:
+          type: string
+          format: uuid
+    SystemHealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          const: ok
