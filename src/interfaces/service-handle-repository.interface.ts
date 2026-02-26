@@ -20,6 +20,7 @@ interface ServiceHandleRecord {
 
 interface ServiceHandleRepositoryInterface {
   createServiceHandle(createServiceHandleInput: CreateServiceHandleInput): Promise<ServiceHandleRecord>
+  getServiceHandleByLabel(label: string): Promise<ServiceHandleRecord | null>
   getServiceHandleByUserUuid(userUuid: string): Promise<ServiceHandleRecord | null>
 }
 

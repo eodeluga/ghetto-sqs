@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { AlreadyRegisteredError } from '@/errors'
 import {
   type ClaimQueueMessageInput,
   type CreateQueueMessageInput,
@@ -18,9 +19,15 @@ import {
 } from '@/interfaces/service-handle-repository.interface'
 
 class InMemoryServiceHandleRepository implements ServiceHandleRepositoryInterface {
+  private readonly serviceHandlesByLabel = new Map<string, ServiceHandleRecord>()
+
   private readonly serviceHandlesByUserUuid = new Map<string, ServiceHandleRecord>()
 
   createServiceHandle(createServiceHandleInput: CreateServiceHandleInput): Promise<ServiceHandleRecord> {
+    if (this.serviceHandlesByLabel.has(createServiceHandleInput.label)) {
+      throw new AlreadyRegisteredError('Service handle label is already registered', undefined, ['body', 'label'])
+    }
+
     const serviceHandleRecord: ServiceHandleRecord = {
       createdAt: new Date(),
       defaultMaxReceiveCount: createServiceHandleInput.defaultMaxReceiveCount,
@@ -32,7 +39,18 @@ class InMemoryServiceHandleRepository implements ServiceHandleRepositoryInterfac
       userUuid: createServiceHandleInput.userUuid,
     }
 
+    this.serviceHandlesByLabel.set(serviceHandleRecord.label, serviceHandleRecord)
     this.serviceHandlesByUserUuid.set(serviceHandleRecord.userUuid, serviceHandleRecord)
+
+    return Promise.resolve(serviceHandleRecord)
+  }
+
+  getServiceHandleByLabel(label: string): Promise<ServiceHandleRecord | null> {
+    const serviceHandleRecord = this.serviceHandlesByLabel.get(label)
+
+    if (serviceHandleRecord === undefined) {
+      return Promise.resolve(null)
+    }
 
     return Promise.resolve(serviceHandleRecord)
   }

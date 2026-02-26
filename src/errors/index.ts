@@ -1,3 +1,4 @@
+export { AlreadyRegisteredError } from '@/errors/already-registered.error'
 export { BaseError, type BaseErrorInput } from '@/errors/base.error'
 export { InternalServerError } from '@/errors/internal-server.error'
 export { MessageNotFoundError } from '@/errors/message-not-found.error'
