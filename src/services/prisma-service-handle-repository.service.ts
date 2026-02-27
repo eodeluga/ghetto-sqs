@@ -10,6 +10,38 @@ import {
 import { PrismaClientService } from '@/services/prisma-client.service'
 
 class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInterface {
+  private buildUnrevokedServiceHandleWhere(userUuid: string): Prisma.ServiceHandleWhereInput {
+    return {
+      OR: [
+        {
+          revokedAt: null,
+        },
+        {
+          revokedAt: {
+            isSet: false,
+          },
+        },
+      ],
+      userUuid,
+    }
+  }
+
+  private buildUnrevokedServiceSigningKeyWhere(serviceUserUuid: string): Prisma.ServiceSigningKeyWhereInput {
+    return {
+      OR: [
+        {
+          revokedAt: null,
+        },
+        {
+          revokedAt: {
+            isSet: false,
+          },
+        },
+      ],
+      serviceUserUuid,
+    }
+  }
+
   private isUniqueLabelViolation(error: unknown): boolean {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
       return false
@@ -44,6 +76,7 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
           defaultMaxReceiveCount: createServiceHandleInput.defaultMaxReceiveCount,
           defaultVisibilityTimeoutSeconds: createServiceHandleInput.defaultVisibilityTimeoutSeconds,
           label: createServiceHandleInput.label,
+          revokedAt: null,
           userUuid: createServiceHandleInput.userUuid,
         },
       })
@@ -51,6 +84,7 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
         data: {
           encryptedSigningKey: createServiceHandleInput.encryptedSigningKey,
           keyVersion: createServiceHandleInput.keyVersion,
+          revokedAt: null,
           serviceUserUuid: createServiceHandleInput.userUuid,
         },
       })
@@ -94,10 +128,7 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
       orderBy: {
         keyVersion: 'desc',
       },
-      where: {
-        revokedAt: null,
-        serviceUserUuid: userUuid,
-      },
+      where: this.buildUnrevokedServiceSigningKeyWhere(userUuid),
     })
   }
 
@@ -107,10 +138,7 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
       data: {
         revokedAt,
       },
-      where: {
-        revokedAt: null,
-        userUuid,
-      },
+      where: this.buildUnrevokedServiceHandleWhere(userUuid),
     })
 
     if (serviceHandleUpdateResult.count !== 1) {
@@ -121,10 +149,7 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
       data: {
         revokedAt,
       },
-      where: {
-        revokedAt: null,
-        serviceUserUuid: userUuid,
-      },
+      where: this.buildUnrevokedServiceSigningKeyWhere(userUuid),
     })
 
     return revokedAt
@@ -143,7 +168,9 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
       throw new Error('Service handle not found for signing key rotation')
     }
 
-    if (serviceHandleRecord.revokedAt !== null) {
+    const serviceHandleRevokedAt = serviceHandleRecord.revokedAt ?? null
+
+    if (serviceHandleRevokedAt !== null) {
       throw new Error('Cannot rotate signing key for revoked service handle')
     }
 
@@ -152,6 +179,7 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
       data: {
         encryptedSigningKey: rotateServiceSigningKeyInput.encryptedSigningKey,
         keyVersion: nextKeyVersion,
+        revokedAt: null,
         serviceUserUuid: rotateServiceSigningKeyInput.serviceUserUuid,
       },
     })
@@ -169,11 +197,14 @@ class PrismaServiceHandleRepositoryService implements ServiceHandleRepositoryInt
         revokedAt: new Date(),
       },
       where: {
-        keyVersion: {
-          not: nextKeyVersion,
-        },
-        revokedAt: null,
-        serviceUserUuid: rotateServiceSigningKeyInput.serviceUserUuid,
+        AND: [
+          this.buildUnrevokedServiceSigningKeyWhere(rotateServiceSigningKeyInput.serviceUserUuid),
+          {
+            keyVersion: {
+              not: nextKeyVersion,
+            },
+          },
+        ],
       },
     })
 
