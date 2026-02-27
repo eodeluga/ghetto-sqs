@@ -1,0 +1,30 @@
+services:
+  sqs:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      args:
+        DATABASE_URL: ${DATABASE_URL}
+    container_name: ghetto_sqs
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL}
+      SIGNING_KEY_MASTER_KEY: ${SIGNING_KEY_MASTER_KEY}
+      PORT: ${PORT}
+    env_file:
+      - .env
+    command: >
+      bash -c 'npx prisma db push && npm start'
+    networks:
+      sqs_host_access:
+        aliases:
+          - sqs
+      mongo_host_access: {}
+
+networks:
+  sqs_host_access:
+    name: sqs_host_access
+    driver: bridge
+  mongo_host_access:
+    external: true
+    name: mongo_host_access
