@@ -97,7 +97,9 @@ class SignedRequestAuthService {
       throw new UnauthorisedError('Service handle not found')
     }
 
-    if (serviceHandle.revokedAt !== null) {
+    const serviceHandleRevokedAt = serviceHandle.revokedAt ?? null
+
+    if (serviceHandleRevokedAt !== null) {
       throw new UnauthorisedError('Service handle has been revoked')
     }
 
