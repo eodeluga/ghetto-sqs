@@ -48,6 +48,33 @@ export SIGNATURE_TOLERANCE_SECONDS="300"
 export SIGNING_KEY_MASTER_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 ```
 
+## Docker Compose
+
+Default compose setup:
+
+```bash
+docker compose up -d
+```
+
+This uses:
+
+- `docker-compose.yml`
+- `.env`
+
+Development compose setup:
+
+```bash
+docker compose --env-file .env.dev -f docker-compose.dev.yml up -d
+```
+
+This uses:
+
+- `docker-compose.dev.yml`
+- `.env.dev`
+
+`.env.dev` is intended for local development credentials that are separate from `.env`.
+If you point `.env.dev` at an existing MongoDB instance, ensure that `DATABASE_URL` credentials exist on that instance.
+
 ## Build And Run
 
 Development mode:
