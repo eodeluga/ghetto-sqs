@@ -24,7 +24,6 @@ class ChangeMessageVisibilityHandler {
     }
 
     const changeMessageVisibilityResponse = await this.queueMessageService.changeMessageVisibility({
-      messageId: pathParamsParseResult.data.messageId,
       queueName: pathParamsParseResult.data.queueName,
       receiptHandle: requestParseResult.data.receiptHandle,
       visibilityTimeoutSeconds: requestParseResult.data.visibilityTimeoutSeconds,

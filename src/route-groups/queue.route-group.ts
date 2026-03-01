@@ -22,11 +22,11 @@ const registerQueueRouteGroup = (
     return receiveMessagesHandler.receiveMessages(request, reply)
   })
 
-  fastify.delete('/v1/queues/:queueName/messages/:messageId', (request, reply) => {
+  fastify.delete('/v1/queues/:queueName/messages', (request, reply) => {
     return deleteMessageHandler.deleteMessage(request, reply)
   })
 
-  fastify.post('/v1/queues/:queueName/messages/:messageId/visibility', (request, reply) => {
+  fastify.post('/v1/queues/:queueName/messages/visibility', (request, reply) => {
     return changeMessageVisibilityHandler.changeMessageVisibility(request, reply)
   })
 }
