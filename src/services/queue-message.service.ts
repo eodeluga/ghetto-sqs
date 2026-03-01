@@ -1,5 +1,5 @@
-import { MessageNotFoundError, ValidationError } from '@/errors'
 import { type Environment, readEnvironment } from '@/config/environment'
+import { ReceiptHandleInvalidError, ValidationError } from '@/errors'
 import { type QueueMessageRepositoryInterface } from '@/interfaces/queue-message-repository.interface'
 import { type ChangeMessageVisibilityResponse } from '@/schemas/change-message-visibility.schema'
 import { type DeleteMessageResponse } from '@/schemas/delete-message.schema'
@@ -10,14 +10,12 @@ import { PrismaQueueMessageRepositoryService } from '@/services/prisma-queue-mes
 import { isFifoQueue } from '@/utils/is-fifo-queue.util'
 
 type ChangeMessageVisibilityInput = {
-  messageId: string
   queueName: string
   receiptHandle: string
   visibilityTimeoutSeconds: number
 }
 
 type DeleteMessageInput = {
-  messageId: string
   queueName: string
   receiptHandle: string
 }
@@ -46,12 +44,12 @@ type QueuePolicyConfiguration = {
 }
 
 class QueueMessageService {
-  private buildVisibilityDate(secondsFromNow: number): Date {
-    return new Date(Date.now() + (secondsFromNow * 1000))
-  }
-
   private buildRetentionCutoffDate(): Date {
     return new Date(Date.now() - (this.queuePolicyConfiguration.messageRetentionSeconds * 1000))
+  }
+
+  private buildVisibilityExpiryDate(secondsFromNow: number): Date {
+    return new Date(Date.now() + (secondsFromNow * 1000))
   }
 
   private ensureQueuePolicyIsValid(enqueueMessageInput: EnqueueMessageInput): void {
@@ -86,13 +84,13 @@ class QueueMessageService {
   }
 
   private isDlqRedriveCandidate(queueMessageRecord: {
+    approximateReceiveCount: number
     deadLetterQueueName: string | null
     maxReceiveCount: number | null
-    receiveCount: number
   }): boolean {
     return queueMessageRecord.deadLetterQueueName !== null
       && queueMessageRecord.maxReceiveCount !== null
-      && queueMessageRecord.receiveCount >= queueMessageRecord.maxReceiveCount
+      && queueMessageRecord.approximateReceiveCount >= queueMessageRecord.maxReceiveCount
   }
 
   constructor(
@@ -112,54 +110,52 @@ class QueueMessageService {
   async changeMessageVisibility(
     changeMessageVisibilityInput: ChangeMessageVisibilityInput
   ): Promise<ChangeMessageVisibilityResponse> {
-    const receiptHandleHash = this.messageSignatureService.createReceiptHandleHash(changeMessageVisibilityInput.receiptHandle)
-    const queueMessageRecord = await this.queueMessageRepository.getQueueMessageByReceiptHandle(
-      changeMessageVisibilityInput.messageId,
-      changeMessageVisibilityInput.queueName,
-      receiptHandleHash
-    )
+    const visibilitySetRequestedAt = new Date()
+    const queueMessageRecord = await this.queueMessageRepository.getQueueMessageByReceiptHandle({
+      queueName: changeMessageVisibilityInput.queueName,
+      receiptHandle: changeMessageVisibilityInput.receiptHandle,
+      visibleAfter: visibilitySetRequestedAt,
+    })
 
     if (queueMessageRecord === null) {
-      throw new MessageNotFoundError('Message not found for receipt handle')
+      throw new ReceiptHandleInvalidError('Receipt handle is invalid')
     }
 
     if (queueMessageRecord.visibilityChangeCount >= this.queuePolicyConfiguration.maxVisibilityExtensions) {
       throw new ValidationError('Maximum visibility timeout changes exceeded', undefined, ['body', 'visibilityTimeoutSeconds'])
     }
 
-    const nextVisibleAt = this.buildVisibilityDate(changeMessageVisibilityInput.visibilityTimeoutSeconds)
+    const visibilityExpiresAt = this.buildVisibilityExpiryDate(changeMessageVisibilityInput.visibilityTimeoutSeconds)
     const messageRecord = await this.queueMessageRepository.setQueueMessageVisibilityByReceiptHandle({
-      messageId: changeMessageVisibilityInput.messageId,
       queueName: changeMessageVisibilityInput.queueName,
-      receiptHandleHash,
-      visibleAt: nextVisibleAt,
+      receiptHandle: changeMessageVisibilityInput.receiptHandle,
+      visibilityExpiresAt,
+      visibilitySetRequestedAt,
     })
 
-    if (messageRecord === null) {
-      throw new MessageNotFoundError('Message not found for receipt handle')
+    if (messageRecord?.visibilityExpiresAt === null || messageRecord === null) {
+      throw new ReceiptHandleInvalidError('Receipt handle is invalid')
     }
 
     return {
       messageId: messageRecord.id,
-      visibleAt: messageRecord.visibleAt.toISOString(),
+      visibleAt: messageRecord.visibilityExpiresAt.toISOString(),
     }
   }
 
   async deleteMessage(deleteMessageInput: DeleteMessageInput): Promise<DeleteMessageResponse> {
-    const receiptHandleHash = this.messageSignatureService.createReceiptHandleHash(deleteMessageInput.receiptHandle)
     const messageDeleted = await this.queueMessageRepository.deleteQueueMessageByReceiptHandle({
-      messageId: deleteMessageInput.messageId,
+      deleteRequestedAt: new Date(),
       queueName: deleteMessageInput.queueName,
-      receiptHandleHash,
+      receiptHandle: deleteMessageInput.receiptHandle,
     })
 
     if (!messageDeleted) {
-      throw new MessageNotFoundError('Message not found for receipt handle')
+      throw new ReceiptHandleInvalidError('Receipt handle is invalid')
     }
 
     return {
       deleted: true,
-      messageId: deleteMessageInput.messageId,
     }
   }
 
@@ -173,9 +169,9 @@ class QueueMessageService {
     if (enqueueMessageInput.messageDeduplicationId !== undefined) {
       const deduplicationWindowStart = new Date(Date.now() - (5 * 60 * 1000))
       const existingQueueMessage = await this.queueMessageRepository.findRecentMessageByDeduplicationId({
-        createdAtOrAfter: deduplicationWindowStart,
         messageDeduplicationId: enqueueMessageInput.messageDeduplicationId,
         queueName: enqueueMessageInput.queueName,
+        sentAtOrAfter: deduplicationWindowStart,
       })
 
       if (existingQueueMessage !== null) {
@@ -183,7 +179,7 @@ class QueueMessageService {
           deduplicated: true,
           messageId: existingQueueMessage.id,
           queueName: existingQueueMessage.queueName,
-          visibleAt: existingQueueMessage.visibleAt.toISOString(),
+          visibleAt: (existingQueueMessage.visibilityExpiresAt ?? new Date()).toISOString(),
         }
       }
     }
@@ -191,7 +187,9 @@ class QueueMessageService {
     const effectiveMaxReceiveCount = enqueueMessageInput.deadLetterQueueName === undefined
       ? null
       : (enqueueMessageInput.maxReceiveCount ?? enqueueMessageInput.defaultMaxReceiveCount)
-    const visibleAt = this.buildVisibilityDate(enqueueMessageInput.delaySeconds)
+    const visibilityExpiresAt = enqueueMessageInput.delaySeconds === 0
+      ? null
+      : this.buildVisibilityExpiryDate(enqueueMessageInput.delaySeconds)
     const queueMessage = await this.queueMessageRepository.createQueueMessage({
       body: enqueueMessageInput.body,
       deadLetterQueueName: enqueueMessageInput.deadLetterQueueName ?? null,
@@ -199,14 +197,14 @@ class QueueMessageService {
       messageDeduplicationId: enqueueMessageInput.messageDeduplicationId ?? null,
       messageGroupId: enqueueMessageInput.messageGroupId ?? null,
       queueName: enqueueMessageInput.queueName,
-      visibleAt,
+      visibilityExpiresAt,
     })
 
     return {
       deduplicated: false,
       messageId: queueMessage.id,
       queueName: queueMessage.queueName,
-      visibleAt: queueMessage.visibleAt.toISOString(),
+      visibleAt: (queueMessage.visibilityExpiresAt ?? new Date()).toISOString(),
     }
   }
 
@@ -216,6 +214,12 @@ class QueueMessageService {
       receiveMessagesInput.queueName
     )
     const claimableAt = new Date()
+
+    await this.queueMessageRepository.normaliseExpiredQueueMessageVisibility(
+      claimableAt,
+      receiveMessagesInput.queueName
+    )
+
     const candidateLimit = Math.min(100, receiveMessagesInput.maxMessages * 10)
     const visibleCandidates = await this.queueMessageRepository.listVisibleQueueMessages({
       limit: candidateLimit,
@@ -239,7 +243,7 @@ class QueueMessageService {
       }
 
       if (visibleCandidate.deadLetterQueueName === null
-        && visibleCandidate.receiveCount >= this.queuePolicyConfiguration.poisonMessageReceiveThreshold
+        && visibleCandidate.approximateReceiveCount >= this.queuePolicyConfiguration.poisonMessageReceiveThreshold
       ) {
         await this.queueMessageRepository.deleteQueueMessageById(
           visibleCandidate.id,
@@ -250,10 +254,10 @@ class QueueMessageService {
 
       if (isFifoQueue(receiveMessagesInput.queueName) && visibleCandidate.messageGroupId !== null) {
         const inflightInSameGroup = await this.queueMessageRepository.hasInflightMessageInFifoGroup({
-          createdAtBefore: visibleCandidate.createdAt,
           messageGroupId: visibleCandidate.messageGroupId,
           queueName: receiveMessagesInput.queueName,
-          visibleAtAfter: claimableAt,
+          sentTimestampBefore: visibleCandidate.sentTimestamp,
+          visibilityExpiresAtAfter: claimableAt,
         })
 
         if (inflightInSameGroup) {
@@ -262,25 +266,24 @@ class QueueMessageService {
       }
 
       const nextReceiptHandle = this.messageSignatureService.createReceiptHandle()
-      const nextReceiptHandleHash = this.messageSignatureService.createReceiptHandleHash(nextReceiptHandle)
-      const nextVisibleAt = this.buildVisibilityDate(receiveMessagesInput.visibilityTimeoutSeconds)
+      const nextVisibilityExpiresAt = this.buildVisibilityExpiryDate(receiveMessagesInput.visibilityTimeoutSeconds)
       const messageClaimed = await this.queueMessageRepository.claimQueueMessageById({
         claimableAt,
         messageId: visibleCandidate.id,
-        nextReceiptHandleHash,
-        nextVisibleAt,
+        nextReceiptHandle,
+        nextVisibilityExpiresAt,
         queueName: receiveMessagesInput.queueName,
       })
 
       if (messageClaimed) {
         receivedMessages.push({
+          approximateReceiveCount: visibleCandidate.approximateReceiveCount + 1,
           body: visibleCandidate.body,
           messageGroupId: visibleCandidate.messageGroupId ?? undefined,
           messageId: visibleCandidate.id,
           queueName: visibleCandidate.queueName,
           receiptHandle: nextReceiptHandle,
-          receiveCount: visibleCandidate.receiveCount + 1,
-          visibleAt: nextVisibleAt.toISOString(),
+          visibilityExpiresAt: nextVisibilityExpiresAt.toISOString(),
         })
       }
     }
