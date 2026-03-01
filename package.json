@@ -25,8 +25,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/main.ts",
-    "prisma:generate": "npx prisma generate --schema src/prisma/schema.prisma",
-    "prisma:push": "npx prisma db push --schema src/prisma/schema.prisma",
+    "prisma:generate": "npx prisma generate --schema prisma/schema.prisma",
+    "prisma:push": "npx prisma db push --schema prisma/schema.prisma",
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "postinstall": "prisma generate",
     "start": "tsx src/main.ts",
