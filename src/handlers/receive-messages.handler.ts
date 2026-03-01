@@ -6,13 +6,14 @@ import {
   receiveMessagesResponseSchema,
 } from '@/schemas/receive-messages.schema'
 import { QueueMessageService } from '@/services/queue-message.service'
-import { getAuthenticatedServiceContext } from '@/utils/authenticated-service-context.util'
+
+const DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 30
+const PUBLIC_SERVICE_USER_UUID = '00000000-0000-0000-0000-000000000000'
 
 class ReceiveMessagesHandler {
   constructor(private readonly queueMessageService: QueueMessageService = new QueueMessageService()) {}
 
   async receiveMessages(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
-    const authenticatedServiceContext = getAuthenticatedServiceContext(request)
     const pathParamsParseResult = receiveMessagesPathParamsSchema.safeParse(request.params)
 
     if (!pathParamsParseResult.success) {
@@ -28,9 +29,9 @@ class ReceiveMessagesHandler {
     const receiveMessagesResponse = await this.queueMessageService.receiveMessages({
       maxMessages: queryParseResult.data.maxMessages,
       queueName: pathParamsParseResult.data.queueName,
-      serviceUserUuid: authenticatedServiceContext.userUuid,
+      serviceUserUuid: PUBLIC_SERVICE_USER_UUID,
       visibilityTimeoutSeconds: queryParseResult.data.visibilityTimeoutSeconds
-        ?? authenticatedServiceContext.defaultVisibilityTimeoutSeconds,
+        ?? DEFAULT_VISIBILITY_TIMEOUT_SECONDS,
     })
     const responseParseResult = receiveMessagesResponseSchema.safeParse(receiveMessagesResponse)
 

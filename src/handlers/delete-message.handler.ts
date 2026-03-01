@@ -6,13 +6,13 @@ import {
   deleteMessageResponseSchema,
 } from '@/schemas/delete-message.schema'
 import { QueueMessageService } from '@/services/queue-message.service'
-import { getAuthenticatedServiceContext } from '@/utils/authenticated-service-context.util'
+
+const PUBLIC_SERVICE_USER_UUID = '00000000-0000-0000-0000-000000000000'
 
 class DeleteMessageHandler {
   constructor(private readonly queueMessageService: QueueMessageService = new QueueMessageService()) {}
 
   async deleteMessage(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
-    const authenticatedServiceContext = getAuthenticatedServiceContext(request)
     const pathParamsParseResult = deleteMessagePathParamsSchema.safeParse(request.params)
 
     if (!pathParamsParseResult.success) {
@@ -29,7 +29,7 @@ class DeleteMessageHandler {
       messageId: pathParamsParseResult.data.messageId,
       queueName: pathParamsParseResult.data.queueName,
       receiptHandle: requestParseResult.data.receiptHandle,
-      serviceUserUuid: authenticatedServiceContext.userUuid,
+      serviceUserUuid: PUBLIC_SERVICE_USER_UUID,
     })
     const responseParseResult = deleteMessageResponseSchema.safeParse(deleteMessageResponse)
 

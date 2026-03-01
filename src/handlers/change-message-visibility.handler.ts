@@ -6,13 +6,13 @@ import {
   changeMessageVisibilityResponseSchema,
 } from '@/schemas/change-message-visibility.schema'
 import { QueueMessageService } from '@/services/queue-message.service'
-import { getAuthenticatedServiceContext } from '@/utils/authenticated-service-context.util'
+
+const PUBLIC_SERVICE_USER_UUID = '00000000-0000-0000-0000-000000000000'
 
 class ChangeMessageVisibilityHandler {
   constructor(private readonly queueMessageService: QueueMessageService = new QueueMessageService()) {}
 
   async changeMessageVisibility(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
-    const authenticatedServiceContext = getAuthenticatedServiceContext(request)
     const pathParamsParseResult = changeMessageVisibilityPathParamsSchema.safeParse(request.params)
 
     if (!pathParamsParseResult.success) {
@@ -29,7 +29,7 @@ class ChangeMessageVisibilityHandler {
       messageId: pathParamsParseResult.data.messageId,
       queueName: pathParamsParseResult.data.queueName,
       receiptHandle: requestParseResult.data.receiptHandle,
-      serviceUserUuid: authenticatedServiceContext.userUuid,
+      serviceUserUuid: PUBLIC_SERVICE_USER_UUID,
       visibilityTimeoutSeconds: requestParseResult.data.visibilityTimeoutSeconds,
     })
     const responseParseResult = changeMessageVisibilityResponseSchema.safeParse(changeMessageVisibilityResponse)
