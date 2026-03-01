@@ -8,24 +8,24 @@ generator client {
 }
 
 model QueueMessage {
-  id                   String   @id @default(auto()) @map("_id") @database.ObjectId
-  body                 Json
-  createdAt            DateTime @default(now())
-  deadLetterQueueName  String?
-  maxReceiveCount      Int?
+  id                     String   @id @default(auto()) @map("_id") @database.ObjectId
+  approximateReceiveCount Int      @default(0)
+  body                   Json
+  currentReceiptHandle   String?
+  deadLetterQueueName    String?
+  maxReceiveCount        Int?
   messageDeduplicationId String?
-  messageGroupId       String?
-  queueName            String
-  receiptHandleHash    String?
-  receiveCount         Int      @default(0)
-  sourceQueueName      String?
-  visibilityChangeCount Int      @default(0)
-  visibleAt            DateTime @default(now())
+  messageGroupId         String?
+  queueName              String
+  sentTimestamp          DateTime @default(now())
+  sourceQueueName        String?
+  visibilityChangeCount  Int      @default(0)
+  visibilityExpiresAt    DateTime?
 
-  @@index([createdAt])
-  @@index([queueName, visibleAt, createdAt])
-  @@index([queueName, messageGroupId, visibleAt, createdAt])
-  @@index([queueName, messageDeduplicationId, createdAt])
+  @@index([sentTimestamp])
+  @@index([queueName, visibilityExpiresAt, sentTimestamp])
+  @@index([queueName, messageGroupId, visibilityExpiresAt, sentTimestamp])
+  @@index([queueName, messageDeduplicationId, sentTimestamp])
 }
 
 model AuditEvent {

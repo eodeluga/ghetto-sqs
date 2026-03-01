@@ -4,6 +4,7 @@ import {
   type CreateQueueMessageInput,
   type DeleteQueueMessageByReceiptHandleInput,
   type FindRecentMessageByDeduplicationIdInput,
+  type GetQueueMessageByReceiptHandleInput,
   type HasInflightMessageInFifoGroupInput,
   type ListVisibleQueueMessagesInput,
   type MoveQueueMessageToDeadLetterQueueInput,
@@ -15,34 +16,34 @@ import { PrismaClientService } from '@/services/prisma-client.service'
 
 class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInterface {
   private mapQueueMessageRecord(queueMessageRecord: {
+    approximateReceiveCount: number
     body: Prisma.JsonValue
-    createdAt: Date
+    currentReceiptHandle: string | null
     deadLetterQueueName: string | null
     id: string
     maxReceiveCount: number | null
     messageDeduplicationId: string | null
     messageGroupId: string | null
     queueName: string
-    receiptHandleHash: string | null
-    receiveCount: number
+    sentTimestamp: Date
     sourceQueueName: string | null
     visibilityChangeCount: number
-    visibleAt: Date
+    visibilityExpiresAt: Date | null
   }): QueueMessageRecord {
     return {
+      approximateReceiveCount: queueMessageRecord.approximateReceiveCount,
       body: queueMessageRecord.body,
-      createdAt: queueMessageRecord.createdAt,
+      currentReceiptHandle: queueMessageRecord.currentReceiptHandle,
       deadLetterQueueName: queueMessageRecord.deadLetterQueueName,
       id: queueMessageRecord.id,
       maxReceiveCount: queueMessageRecord.maxReceiveCount,
       messageDeduplicationId: queueMessageRecord.messageDeduplicationId,
       messageGroupId: queueMessageRecord.messageGroupId,
       queueName: queueMessageRecord.queueName,
-      receiptHandleHash: queueMessageRecord.receiptHandleHash,
-      receiveCount: queueMessageRecord.receiveCount,
+      sentTimestamp: queueMessageRecord.sentTimestamp,
       sourceQueueName: queueMessageRecord.sourceQueueName,
       visibilityChangeCount: queueMessageRecord.visibilityChangeCount,
-      visibleAt: queueMessageRecord.visibleAt,
+      visibilityExpiresAt: queueMessageRecord.visibilityExpiresAt,
     }
   }
 
@@ -55,18 +56,25 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
   async claimQueueMessageById(claimQueueMessageInput: ClaimQueueMessageInput): Promise<boolean> {
     const updateResult = await this.prismaClient.queueMessage.updateMany({
       data: {
-        receiptHandleHash: claimQueueMessageInput.nextReceiptHandleHash,
-        receiveCount: {
+        approximateReceiveCount: {
           increment: 1,
         },
-        visibleAt: claimQueueMessageInput.nextVisibleAt,
+        currentReceiptHandle: claimQueueMessageInput.nextReceiptHandle,
+        visibilityExpiresAt: claimQueueMessageInput.nextVisibilityExpiresAt,
       },
       where: {
         id: claimQueueMessageInput.messageId,
+        OR: [
+          {
+            visibilityExpiresAt: null,
+          },
+          {
+            visibilityExpiresAt: {
+              lte: claimQueueMessageInput.claimableAt,
+            },
+          },
+        ],
         queueName: claimQueueMessageInput.queueName,
-        visibleAt: {
-          lte: claimQueueMessageInput.claimableAt,
-        },
       },
     })
 
@@ -83,7 +91,7 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         messageGroupId: createQueueMessageInput.messageGroupId,
         queueName: createQueueMessageInput.queueName,
         visibilityChangeCount: 0,
-        visibleAt: createQueueMessageInput.visibleAt,
+        visibilityExpiresAt: createQueueMessageInput.visibilityExpiresAt,
       },
     })
 
@@ -95,9 +103,11 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
   ): Promise<boolean> {
     const deleteResult = await this.prismaClient.queueMessage.deleteMany({
       where: {
-        id: deleteQueueMessageByReceiptHandleInput.messageId,
+        currentReceiptHandle: deleteQueueMessageByReceiptHandleInput.receiptHandle,
         queueName: deleteQueueMessageByReceiptHandleInput.queueName,
-        receiptHandleHash: deleteQueueMessageByReceiptHandleInput.receiptHandleHash,
+        visibilityExpiresAt: {
+          gt: deleteQueueMessageByReceiptHandleInput.deleteRequestedAt,
+        },
       },
     })
 
@@ -120,14 +130,14 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
   ): Promise<QueueMessageRecord | null> {
     const queueMessageRecord = await this.prismaClient.queueMessage.findFirst({
       orderBy: {
-        createdAt: 'desc',
+        sentTimestamp: 'desc',
       },
       where: {
-        createdAt: {
-          gte: findRecentMessageByDeduplicationIdInput.createdAtOrAfter,
-        },
         messageDeduplicationId: findRecentMessageByDeduplicationIdInput.messageDeduplicationId,
         queueName: findRecentMessageByDeduplicationIdInput.queueName,
+        sentTimestamp: {
+          gte: findRecentMessageByDeduplicationIdInput.sentAtOrAfter,
+        },
       },
     })
 
@@ -139,15 +149,15 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
   }
 
   async getQueueMessageByReceiptHandle(
-    messageId: string,
-    queueName: string,
-    receiptHandleHash: string
+    getQueueMessageByReceiptHandleInput: GetQueueMessageByReceiptHandleInput
   ): Promise<QueueMessageRecord | null> {
     const queueMessageRecord = await this.prismaClient.queueMessage.findFirst({
       where: {
-        id: messageId,
-        queueName,
-        receiptHandleHash,
+        currentReceiptHandle: getQueueMessageByReceiptHandleInput.receiptHandle,
+        queueName: getQueueMessageByReceiptHandleInput.queueName,
+        visibilityExpiresAt: {
+          gt: getQueueMessageByReceiptHandleInput.visibleAfter,
+        },
       },
     })
 
@@ -163,13 +173,13 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
   ): Promise<boolean> {
     const inflightMessageCount = await this.prismaClient.queueMessage.count({
       where: {
-        createdAt: {
-          lt: hasInflightMessageInFifoGroupInput.createdAtBefore,
-        },
         messageGroupId: hasInflightMessageInFifoGroupInput.messageGroupId,
         queueName: hasInflightMessageInFifoGroupInput.queueName,
-        visibleAt: {
-          gt: hasInflightMessageInFifoGroupInput.visibleAtAfter,
+        sentTimestamp: {
+          lt: hasInflightMessageInFifoGroupInput.sentTimestampBefore,
+        },
+        visibilityExpiresAt: {
+          gt: hasInflightMessageInFifoGroupInput.visibilityExpiresAtAfter,
         },
       },
     })
@@ -180,14 +190,21 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
   async listVisibleQueueMessages(listVisibleQueueMessagesInput: ListVisibleQueueMessagesInput): Promise<QueueMessageRecord[]> {
     const queueMessageRecords = await this.prismaClient.queueMessage.findMany({
       orderBy: {
-        createdAt: 'asc',
+        sentTimestamp: 'asc',
       },
       take: listVisibleQueueMessagesInput.limit,
       where: {
+        OR: [
+          {
+            visibilityExpiresAt: null,
+          },
+          {
+            visibilityExpiresAt: {
+              lte: listVisibleQueueMessagesInput.visibleAtOrBefore,
+            },
+          },
+        ],
         queueName: listVisibleQueueMessagesInput.queueName,
-        visibleAt: {
-          lte: listVisibleQueueMessagesInput.visibleAtOrBefore,
-        },
       },
     })
 
@@ -196,19 +213,36 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
     })
   }
 
+  async normaliseExpiredQueueMessageVisibility(expiredAtOrBefore: Date, queueName: string): Promise<number> {
+    const updateResult = await this.prismaClient.queueMessage.updateMany({
+      data: {
+        currentReceiptHandle: null,
+        visibilityExpiresAt: null,
+      },
+      where: {
+        queueName,
+        visibilityExpiresAt: {
+          lte: expiredAtOrBefore,
+        },
+      },
+    })
+
+    return updateResult.count
+  }
+
   async moveQueueMessageToDeadLetterQueue(
     moveQueueMessageToDeadLetterQueueInput: MoveQueueMessageToDeadLetterQueueInput
   ): Promise<boolean> {
     const updateResult = await this.prismaClient.queueMessage.updateMany({
       data: {
+        approximateReceiveCount: 0,
+        currentReceiptHandle: null,
         deadLetterQueueName: null,
         maxReceiveCount: null,
         queueName: moveQueueMessageToDeadLetterQueueInput.deadLetterQueueName,
-        receiptHandleHash: null,
-        receiveCount: 0,
         sourceQueueName: moveQueueMessageToDeadLetterQueueInput.queueName,
         visibilityChangeCount: 0,
-        visibleAt: new Date(),
+        visibilityExpiresAt: null,
       },
       where: {
         id: moveQueueMessageToDeadLetterQueueInput.messageId,
@@ -222,10 +256,10 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
   async purgeExpiredQueueMessages(olderThanOrEqualTo: Date, queueName: string): Promise<number> {
     const deleteResult = await this.prismaClient.queueMessage.deleteMany({
       where: {
-        createdAt: {
+        queueName,
+        sentTimestamp: {
           lte: olderThanOrEqualTo,
         },
-        queueName,
       },
     })
 
@@ -240,12 +274,14 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         visibilityChangeCount: {
           increment: 1,
         },
-        visibleAt: setQueueMessageVisibilityByReceiptHandleInput.visibleAt,
+        visibilityExpiresAt: setQueueMessageVisibilityByReceiptHandleInput.visibilityExpiresAt,
       },
       where: {
-        id: setQueueMessageVisibilityByReceiptHandleInput.messageId,
+        currentReceiptHandle: setQueueMessageVisibilityByReceiptHandleInput.receiptHandle,
         queueName: setQueueMessageVisibilityByReceiptHandleInput.queueName,
-        receiptHandleHash: setQueueMessageVisibilityByReceiptHandleInput.receiptHandleHash,
+        visibilityExpiresAt: {
+          gt: setQueueMessageVisibilityByReceiptHandleInput.visibilitySetRequestedAt,
+        },
       },
     })
 
@@ -253,9 +289,10 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
       return null
     }
 
-    const queueMessageRecord = await this.prismaClient.queueMessage.findUnique({
+    const queueMessageRecord = await this.prismaClient.queueMessage.findFirst({
       where: {
-        id: setQueueMessageVisibilityByReceiptHandleInput.messageId,
+        currentReceiptHandle: setQueueMessageVisibilityByReceiptHandleInput.receiptHandle,
+        queueName: setQueueMessageVisibilityByReceiptHandleInput.queueName,
       },
     })
 
