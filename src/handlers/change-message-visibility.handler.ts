@@ -7,8 +7,6 @@ import {
 } from '@/schemas/change-message-visibility.schema'
 import { QueueMessageService } from '@/services/queue-message.service'
 
-const PUBLIC_SERVICE_USER_UUID = '00000000-0000-0000-0000-000000000000'
-
 class ChangeMessageVisibilityHandler {
   constructor(private readonly queueMessageService: QueueMessageService = new QueueMessageService()) {}
 
@@ -29,7 +27,6 @@ class ChangeMessageVisibilityHandler {
       messageId: pathParamsParseResult.data.messageId,
       queueName: pathParamsParseResult.data.queueName,
       receiptHandle: requestParseResult.data.receiptHandle,
-      serviceUserUuid: PUBLIC_SERVICE_USER_UUID,
       visibilityTimeoutSeconds: requestParseResult.data.visibilityTimeoutSeconds,
     })
     const responseParseResult = changeMessageVisibilityResponseSchema.safeParse(changeMessageVisibilityResponse)

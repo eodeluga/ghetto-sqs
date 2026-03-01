@@ -13,7 +13,6 @@ type ChangeMessageVisibilityInput = {
   messageId: string
   queueName: string
   receiptHandle: string
-  serviceUserUuid: string
   visibilityTimeoutSeconds: number
 }
 
@@ -21,7 +20,6 @@ type DeleteMessageInput = {
   messageId: string
   queueName: string
   receiptHandle: string
-  serviceUserUuid: string
 }
 
 type EnqueueMessageInput = {
@@ -33,13 +31,11 @@ type EnqueueMessageInput = {
   messageDeduplicationId?: string
   messageGroupId?: string
   queueName: string
-  serviceUserUuid: string
 }
 
 type ReceiveMessagesInput = {
   maxMessages: number
   queueName: string
-  serviceUserUuid: string
   visibilityTimeoutSeconds: number
 }
 
@@ -120,8 +116,7 @@ class QueueMessageService {
     const queueMessageRecord = await this.queueMessageRepository.getQueueMessageByReceiptHandle(
       changeMessageVisibilityInput.messageId,
       changeMessageVisibilityInput.queueName,
-      receiptHandleHash,
-      changeMessageVisibilityInput.serviceUserUuid
+      receiptHandleHash
     )
 
     if (queueMessageRecord === null) {
@@ -137,7 +132,6 @@ class QueueMessageService {
       messageId: changeMessageVisibilityInput.messageId,
       queueName: changeMessageVisibilityInput.queueName,
       receiptHandleHash,
-      serviceUserUuid: changeMessageVisibilityInput.serviceUserUuid,
       visibleAt: nextVisibleAt,
     })
 
@@ -157,7 +151,6 @@ class QueueMessageService {
       messageId: deleteMessageInput.messageId,
       queueName: deleteMessageInput.queueName,
       receiptHandleHash,
-      serviceUserUuid: deleteMessageInput.serviceUserUuid,
     })
 
     if (!messageDeleted) {
@@ -173,8 +166,7 @@ class QueueMessageService {
   async enqueueMessage(enqueueMessageInput: EnqueueMessageInput): Promise<EnqueueMessageResponse> {
     await this.queueMessageRepository.purgeExpiredQueueMessages(
       this.buildRetentionCutoffDate(),
-      enqueueMessageInput.queueName,
-      enqueueMessageInput.serviceUserUuid
+      enqueueMessageInput.queueName
     )
     this.ensureQueuePolicyIsValid(enqueueMessageInput)
 
@@ -184,7 +176,6 @@ class QueueMessageService {
         createdAtOrAfter: deduplicationWindowStart,
         messageDeduplicationId: enqueueMessageInput.messageDeduplicationId,
         queueName: enqueueMessageInput.queueName,
-        serviceUserUuid: enqueueMessageInput.serviceUserUuid,
       })
 
       if (existingQueueMessage !== null) {
@@ -208,7 +199,6 @@ class QueueMessageService {
       messageDeduplicationId: enqueueMessageInput.messageDeduplicationId ?? null,
       messageGroupId: enqueueMessageInput.messageGroupId ?? null,
       queueName: enqueueMessageInput.queueName,
-      serviceUserUuid: enqueueMessageInput.serviceUserUuid,
       visibleAt,
     })
 
@@ -223,15 +213,13 @@ class QueueMessageService {
   async receiveMessages(receiveMessagesInput: ReceiveMessagesInput): Promise<ReceiveMessagesResponse> {
     await this.queueMessageRepository.purgeExpiredQueueMessages(
       this.buildRetentionCutoffDate(),
-      receiveMessagesInput.queueName,
-      receiveMessagesInput.serviceUserUuid
+      receiveMessagesInput.queueName
     )
     const claimableAt = new Date()
     const candidateLimit = Math.min(100, receiveMessagesInput.maxMessages * 10)
     const visibleCandidates = await this.queueMessageRepository.listVisibleQueueMessages({
       limit: candidateLimit,
       queueName: receiveMessagesInput.queueName,
-      serviceUserUuid: receiveMessagesInput.serviceUserUuid,
       visibleAtOrBefore: claimableAt,
     })
     const receivedMessages: ReceiveMessagesResponse['messages'] = []
@@ -246,7 +234,6 @@ class QueueMessageService {
           deadLetterQueueName: visibleCandidate.deadLetterQueueName as string,
           messageId: visibleCandidate.id,
           queueName: receiveMessagesInput.queueName,
-          serviceUserUuid: receiveMessagesInput.serviceUserUuid,
         })
         continue
       }
@@ -256,8 +243,7 @@ class QueueMessageService {
       ) {
         await this.queueMessageRepository.deleteQueueMessageById(
           visibleCandidate.id,
-          receiveMessagesInput.queueName,
-          receiveMessagesInput.serviceUserUuid
+          receiveMessagesInput.queueName
         )
         continue
       }
@@ -267,7 +253,6 @@ class QueueMessageService {
           createdAtBefore: visibleCandidate.createdAt,
           messageGroupId: visibleCandidate.messageGroupId,
           queueName: receiveMessagesInput.queueName,
-          serviceUserUuid: receiveMessagesInput.serviceUserUuid,
           visibleAtAfter: claimableAt,
         })
 
@@ -285,7 +270,6 @@ class QueueMessageService {
         nextReceiptHandleHash,
         nextVisibleAt,
         queueName: receiveMessagesInput.queueName,
-        serviceUserUuid: receiveMessagesInput.serviceUserUuid,
       })
 
       if (messageClaimed) {

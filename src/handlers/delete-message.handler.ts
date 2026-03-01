@@ -7,8 +7,6 @@ import {
 } from '@/schemas/delete-message.schema'
 import { QueueMessageService } from '@/services/queue-message.service'
 
-const PUBLIC_SERVICE_USER_UUID = '00000000-0000-0000-0000-000000000000'
-
 class DeleteMessageHandler {
   constructor(private readonly queueMessageService: QueueMessageService = new QueueMessageService()) {}
 
@@ -29,7 +27,6 @@ class DeleteMessageHandler {
       messageId: pathParamsParseResult.data.messageId,
       queueName: pathParamsParseResult.data.queueName,
       receiptHandle: requestParseResult.data.receiptHandle,
-      serviceUserUuid: PUBLIC_SERVICE_USER_UUID,
     })
     const responseParseResult = deleteMessageResponseSchema.safeParse(deleteMessageResponse)
 
