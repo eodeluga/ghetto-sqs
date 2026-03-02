@@ -1,8 +1,8 @@
 interface ClaimQueueMessageInput {
   claimableAt: Date
   messageId: string
-  nextReceiptHandleHash: string
-  nextVisibleAt: Date
+  nextReceiptHandle: string
+  nextVisibilityExpiresAt: Date
   queueName: string
 }
 
@@ -13,26 +13,32 @@ interface CreateQueueMessageInput {
   messageDeduplicationId: string | null
   messageGroupId: string | null
   queueName: string
-  visibleAt: Date
+  visibilityExpiresAt: Date | null
 }
 
 interface DeleteQueueMessageByReceiptHandleInput {
-  messageId: string
+  deleteRequestedAt: Date
   queueName: string
-  receiptHandleHash: string
+  receiptHandle: string
 }
 
 interface FindRecentMessageByDeduplicationIdInput {
-  createdAtOrAfter: Date
   messageDeduplicationId: string
   queueName: string
+  sentAtOrAfter: Date
+}
+
+interface GetQueueMessageByReceiptHandleInput {
+  queueName: string
+  receiptHandle: string
+  visibleAfter: Date
 }
 
 interface HasInflightMessageInFifoGroupInput {
-  createdAtBefore: Date
   messageGroupId: string
   queueName: string
-  visibleAtAfter: Date
+  sentTimestampBefore: Date
+  visibilityExpiresAtAfter: Date
 }
 
 interface ListVisibleQueueMessagesInput {
@@ -48,26 +54,26 @@ interface MoveQueueMessageToDeadLetterQueueInput {
 }
 
 interface QueueMessageRecord {
+  approximateReceiveCount: number
   body: unknown
-  createdAt: Date
+  currentReceiptHandle: string | null
   deadLetterQueueName: string | null
   id: string
   maxReceiveCount: number | null
   messageDeduplicationId: string | null
   messageGroupId: string | null
   queueName: string
-  receiptHandleHash: string | null
-  receiveCount: number
+  sentTimestamp: Date
   sourceQueueName: string | null
   visibilityChangeCount: number
-  visibleAt: Date
+  visibilityExpiresAt: Date | null
 }
 
 interface SetQueueMessageVisibilityByReceiptHandleInput {
-  messageId: string
   queueName: string
-  receiptHandleHash: string
-  visibleAt: Date
+  receiptHandle: string
+  visibilityExpiresAt: Date
+  visibilitySetRequestedAt: Date
 }
 
 interface QueueMessageRepositoryInterface {
@@ -81,14 +87,13 @@ interface QueueMessageRepositoryInterface {
     findRecentMessageByDeduplicationIdInput: FindRecentMessageByDeduplicationIdInput
   ): Promise<QueueMessageRecord | null>
   getQueueMessageByReceiptHandle(
-    messageId: string,
-    queueName: string,
-    receiptHandleHash: string
+    getQueueMessageByReceiptHandleInput: GetQueueMessageByReceiptHandleInput
   ): Promise<QueueMessageRecord | null>
   hasInflightMessageInFifoGroup(
     hasInflightMessageInFifoGroupInput: HasInflightMessageInFifoGroupInput
   ): Promise<boolean>
   listVisibleQueueMessages(listVisibleQueueMessagesInput: ListVisibleQueueMessagesInput): Promise<QueueMessageRecord[]>
+  normaliseExpiredQueueMessageVisibility(expiredAtOrBefore: Date, queueName: string): Promise<number>
   moveQueueMessageToDeadLetterQueue(
     moveQueueMessageToDeadLetterQueueInput: MoveQueueMessageToDeadLetterQueueInput
   ): Promise<boolean>
@@ -103,6 +108,7 @@ export {
   type CreateQueueMessageInput,
   type DeleteQueueMessageByReceiptHandleInput,
   type FindRecentMessageByDeduplicationIdInput,
+  type GetQueueMessageByReceiptHandleInput,
   type HasInflightMessageInFifoGroupInput,
   type ListVisibleQueueMessagesInput,
   type MoveQueueMessageToDeadLetterQueueInput,

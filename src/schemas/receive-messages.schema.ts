@@ -12,13 +12,13 @@ const receiveMessagesQuerySchema = z.object({
 })
 
 const receivedMessageSchema = z.object({
+  approximateReceiveCount: z.number().int().min(1),
   body: z.unknown(),
   messageGroupId: z.string().max(128).min(1).optional(),
   messageId: z.string().min(1),
   queueName: queueNameSchema,
   receiptHandle: z.string().min(1),
-  receiveCount: z.number().int().min(1),
-  visibleAt: z.string().datetime(),
+  visibilityExpiresAt: z.string().datetime(),
 })
 
 const receiveMessagesResponseSchema = z.object({

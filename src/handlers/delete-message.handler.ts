@@ -24,7 +24,6 @@ class DeleteMessageHandler {
     }
 
     const deleteMessageResponse = await this.queueMessageService.deleteMessage({
-      messageId: pathParamsParseResult.data.messageId,
       queueName: pathParamsParseResult.data.queueName,
       receiptHandle: requestParseResult.data.receiptHandle,
     })
