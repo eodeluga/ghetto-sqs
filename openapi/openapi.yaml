@@ -9,6 +9,12 @@ tags:
   - name: System
   - name: Queues
 paths:
+  /:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
   /health:
     get:
       tags:
