@@ -6,13 +6,14 @@ import {
   enqueueMessageResponseSchema,
 } from '@/schemas/enqueue-message.schema'
 import { QueueMessageService } from '@/services/queue-message.service'
-import { getAuthenticatedServiceContext } from '@/utils/authenticated-service-context.util'
+
+const DEFAULT_MAX_RECEIVE_COUNT = 5
+const PUBLIC_SERVICE_USER_UUID = '00000000-0000-0000-0000-000000000000'
 
 class EnqueueMessageHandler {
   constructor(private readonly queueMessageService: QueueMessageService = new QueueMessageService()) {}
 
   async enqueueMessage(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
-    const authenticatedServiceContext = getAuthenticatedServiceContext(request)
     const pathParamsParseResult = enqueueMessagePathParamsSchema.safeParse(request.params)
 
     if (!pathParamsParseResult.success) {
@@ -27,14 +28,14 @@ class EnqueueMessageHandler {
 
     const enqueueMessageResponse = await this.queueMessageService.enqueueMessage({
       body: bodyParseResult.data.body,
-      defaultMaxReceiveCount: authenticatedServiceContext.defaultMaxReceiveCount,
+      defaultMaxReceiveCount: DEFAULT_MAX_RECEIVE_COUNT,
       deadLetterQueueName: bodyParseResult.data.deadLetterQueueName,
       delaySeconds: bodyParseResult.data.delaySeconds,
       maxReceiveCount: bodyParseResult.data.maxReceiveCount,
       messageDeduplicationId: bodyParseResult.data.messageDeduplicationId,
       messageGroupId: bodyParseResult.data.messageGroupId,
       queueName: pathParamsParseResult.data.queueName,
-      serviceUserUuid: authenticatedServiceContext.userUuid,
+      serviceUserUuid: PUBLIC_SERVICE_USER_UUID,
     })
     const responseParseResult = enqueueMessageResponseSchema.safeParse(enqueueMessageResponse)
 
