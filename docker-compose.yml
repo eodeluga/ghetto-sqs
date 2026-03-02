@@ -9,7 +9,6 @@ services:
     restart: unless-stopped
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
-      SIGNING_KEY_MASTER_KEY: ${SIGNING_KEY_MASTER_KEY}
       PORT: ${PORT}
     env_file:
       - .env
