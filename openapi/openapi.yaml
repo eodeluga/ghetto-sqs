@@ -2,13 +2,11 @@ openapi: 3.1.0
 info:
   title: Ghetto SQS API
   version: 0.0.1
-  summary: Lightweight SQS-compatible API with per-service queue isolation, FIFO support, and DLQ redrive
+  summary: Lightweight SQS-compatible queue API with authless send, receive, delete, and visibility operations
 servers:
   - url: http://localhost:3000
-security: []
 tags:
   - name: System
-  - name: Handles
   - name: Queues
 paths:
   /health:
@@ -43,7 +41,7 @@ paths:
     get:
       tags:
         - System
-      summary: Readiness check with dependency health validation
+      summary: Readiness check with dependency validation
       responses:
         '200':
           description: Service dependencies are ready
@@ -55,85 +53,11 @@ paths:
           $ref: '#/components/responses/ServiceUnavailableErrorResponse'
         default:
           $ref: '#/components/responses/ErrorResponse'
-  /v1/handles/register:
-    post:
-      tags:
-        - Handles
-      summary: Register a service handle and issue signing credentials with service defaults
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RegisterHandleRequest'
-      responses:
-        '201':
-          description: Handle created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RegisterHandleResponse'
-        '409':
-          description: Handle label already registered
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        default:
-          $ref: '#/components/responses/ErrorResponse'
-  /v1/handles/keys/rotate:
-    post:
-      tags:
-        - Handles
-      summary: Rotate current handle signing key and revoke other active keys
-      security:
-        - SignedRequest: []
-      responses:
-        '401':
-          $ref: '#/components/responses/UnauthorisedErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedErrorResponse'
-        '200':
-          description: Signing key rotated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RotateSigningKeyResponse'
-        default:
-          $ref: '#/components/responses/ErrorResponse'
-  /v1/handles/revoke:
-    post:
-      tags:
-        - Handles
-      summary: Revoke current handle and all active signing keys
-      security:
-        - SignedRequest: []
-      responses:
-        '401':
-          $ref: '#/components/responses/UnauthorisedErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedErrorResponse'
-        '200':
-          description: Handle revoked
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RevokeHandleResponse'
-        default:
-          $ref: '#/components/responses/ErrorResponse'
   /v1/queues/{queueName}/messages:
     post:
       tags:
         - Queues
-      summary: Enqueue a message for an authenticated service handle
-      description: |
-        FIFO queues are identified by `.fifo` suffix and require `messageGroupId`.
-        FIFO deduplication is available through `messageDeduplicationId`.
-        DLQ redrive can be configured per message via `deadLetterQueueName` and `maxReceiveCount`.
-        If `maxReceiveCount` is omitted, the registered handle default is used.
-        Queue retention is enforced by server policy.
-      security:
-        - SignedRequest: []
+      summary: Send a message to a queue
       parameters:
         - $ref: '#/components/parameters/QueueNamePath'
       requestBody:
@@ -143,10 +67,6 @@ paths:
             schema:
               $ref: '#/components/schemas/EnqueueMessageRequest'
       responses:
-        '401':
-          $ref: '#/components/responses/UnauthorisedErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedErrorResponse'
         '201':
           description: Message accepted
           content:
@@ -155,22 +75,43 @@ paths:
                 $ref: '#/components/schemas/EnqueueMessageResponse'
         default:
           $ref: '#/components/responses/ErrorResponse'
+    delete:
+      tags:
+        - Queues
+      summary: Delete a message with an active receipt handle
+      parameters:
+        - $ref: '#/components/parameters/QueueNamePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteMessageRequest'
+      responses:
+        '200':
+          description: Message deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteMessageResponse'
+        '400':
+          description: Receipt handle is invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
   /v1/queues/{queueName}/messages/receive:
     get:
       tags:
         - Queues
-      summary: Receive visible messages from the authenticated service queue
-      security:
-        - SignedRequest: []
+      summary: Receive visible messages
       parameters:
         - $ref: '#/components/parameters/QueueNamePath'
         - $ref: '#/components/parameters/MaxMessagesQuery'
         - $ref: '#/components/parameters/VisibilityTimeoutQuery'
       responses:
-        '401':
-          $ref: '#/components/responses/UnauthorisedErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedErrorResponse'
         '200':
           description: Messages received
           content:
@@ -179,46 +120,13 @@ paths:
                 $ref: '#/components/schemas/ReceiveMessagesResponse'
         default:
           $ref: '#/components/responses/ErrorResponse'
-  /v1/queues/{queueName}/messages/{messageId}:
-    delete:
-      tags:
-        - Queues
-      summary: Delete a message using its receipt handle
-      security:
-        - SignedRequest: []
-      parameters:
-        - $ref: '#/components/parameters/QueueNamePath'
-        - $ref: '#/components/parameters/MessageIdPath'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DeleteMessageRequest'
-      responses:
-        '401':
-          $ref: '#/components/responses/UnauthorisedErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedErrorResponse'
-        '200':
-          description: Message deleted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeleteMessageResponse'
-        default:
-          $ref: '#/components/responses/ErrorResponse'
-  /v1/queues/{queueName}/messages/{messageId}/visibility:
+  /v1/queues/{queueName}/messages/visibility:
     post:
       tags:
         - Queues
-      summary: Change message visibility timeout using receipt handle
-      description: Visibility timeout changes are capped per message by server policy.
-      security:
-        - SignedRequest: []
+      summary: Change visibility timeout using an active receipt handle
       parameters:
         - $ref: '#/components/parameters/QueueNamePath'
-        - $ref: '#/components/parameters/MessageIdPath'
       requestBody:
         required: true
         content:
@@ -226,38 +134,22 @@ paths:
             schema:
               $ref: '#/components/schemas/ChangeMessageVisibilityRequest'
       responses:
-        '401':
-          $ref: '#/components/responses/UnauthorisedErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimitedErrorResponse'
         '200':
           description: Visibility updated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChangeMessageVisibilityResponse'
+        '400':
+          description: Receipt handle is invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         default:
           $ref: '#/components/responses/ErrorResponse'
 components:
-  securitySchemes:
-    SignedRequest:
-      type: apiKey
-      in: header
-      name: x-gsqs-signature
-      description: |
-        Requests must include all four headers:
-        - x-gsqs-nonce
-        - x-gsqs-user-uuid
-        - x-gsqs-timestamp
-        - x-gsqs-signature
   parameters:
-    MessageIdPath:
-      in: path
-      name: messageId
-      required: true
-      schema:
-        type: string
-        minLength: 1
     MaxMessagesQuery:
       in: query
       name: maxMessages
@@ -280,11 +172,11 @@ components:
       in: query
       name: visibilityTimeoutSeconds
       required: false
+      description: Visibility timeout to apply to returned messages.
       schema:
         type: integer
         minimum: 0
         maximum: 43200
-      description: If omitted, the registered handle default visibility timeout is used.
   responses:
     ErrorResponse:
       description: Error response
@@ -292,20 +184,8 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-    RateLimitedErrorResponse:
-      description: Request rate limit exceeded
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
     ServiceUnavailableErrorResponse:
       description: Service dependencies are not ready
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    UnauthorisedErrorResponse:
-      description: Signed request authentication failed
       content:
         application/json:
           schema:
@@ -352,27 +232,24 @@ components:
       additionalProperties: false
       required:
         - deleted
-        - messageId
       properties:
         deleted:
           type: boolean
-          const: true
-        messageId:
-          type: string
-          minLength: 1
+          enum:
+            - true
     EnqueueMessageRequest:
       type: object
       additionalProperties: false
       required:
         - body
       properties:
-        body: {}
+        body:
+          description: Message payload
         deadLetterQueueName:
           type: string
           minLength: 1
           maxLength: 80
           pattern: '^[A-Za-z0-9._-]+$'
-          description: Dead-letter queue target for this message redrive policy.
         delaySeconds:
           type: integer
           minimum: 0
@@ -382,7 +259,6 @@ components:
           type: integer
           minimum: 1
           maximum: 1000
-          description: If omitted while deadLetterQueueName is set, handle defaultMaxReceiveCount is used.
         messageDeduplicationId:
           type: string
           minLength: 1
@@ -409,6 +285,7 @@ components:
           type: string
           minLength: 1
           maxLength: 80
+          pattern: '^[A-Za-z0-9._-]+$'
         visibleAt:
           type: string
           format: date-time
@@ -423,7 +300,8 @@ components:
         code:
           type: string
           minLength: 1
-        details: {}
+        details:
+          description: Optional structured error details
         message:
           type: string
           minLength: 1
@@ -434,14 +312,18 @@ components:
       type: object
       additionalProperties: false
       required:
+        - approximateReceiveCount
         - body
         - messageId
         - queueName
         - receiptHandle
-        - receiveCount
-        - visibleAt
+        - visibilityExpiresAt
       properties:
-        body: {}
+        approximateReceiveCount:
+          type: integer
+          minimum: 1
+        body:
+          description: Message payload
         messageGroupId:
           type: string
           minLength: 1
@@ -453,13 +335,11 @@ components:
           type: string
           minLength: 1
           maxLength: 80
+          pattern: '^[A-Za-z0-9._-]+$'
         receiptHandle:
           type: string
           minLength: 1
-        receiveCount:
-          type: integer
-          minimum: 1
-        visibleAt:
+        visibilityExpiresAt:
           type: string
           format: date-time
     ReceiveMessagesResponse:
@@ -472,78 +352,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReceivedMessage'
-    RevokeHandleResponse:
-      type: object
-      additionalProperties: false
-      required:
-        - revoked
-        - revokedAt
-      properties:
-        revoked:
-          type: boolean
-          const: true
-        revokedAt:
-          type: string
-          format: date-time
-    RegisterHandleRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - label
-      properties:
-        defaultMaxReceiveCount:
-          type: integer
-          minimum: 1
-          maximum: 1000
-          default: 5
-          description: Default max receive count before DLQ redrive.
-        defaultVisibilityTimeoutSeconds:
-          type: integer
-          minimum: 0
-          maximum: 43200
-          default: 30
-          description: Default visibility timeout after receive when request does not override.
-        label:
-          type: string
-          minLength: 3
-          maxLength: 100
-          description: Unique handle label. Duplicate labels return 409 already_registered.
-    RegisterHandleResponse:
-      type: object
-      additionalProperties: false
-      required:
-        - defaultMaxReceiveCount
-        - defaultVisibilityTimeoutSeconds
-        - signingKey
-        - userUuid
-      properties:
-        defaultMaxReceiveCount:
-          type: integer
-          minimum: 1
-          maximum: 1000
-        defaultVisibilityTimeoutSeconds:
-          type: integer
-          minimum: 0
-          maximum: 43200
-        signingKey:
-          type: string
-          minLength: 1
-        userUuid:
-          type: string
-          format: uuid
-    RotateSigningKeyResponse:
-      type: object
-      additionalProperties: false
-      required:
-        - keyVersion
-        - signingKey
-      properties:
-        keyVersion:
-          type: integer
-          minimum: 1
-        signingKey:
-          type: string
-          minLength: 1
     SystemHealthResponse:
       type: object
       additionalProperties: false
@@ -552,7 +360,8 @@ components:
       properties:
         status:
           type: string
-          const: ok
+          enum:
+            - ok
     SystemReadinessResponse:
       type: object
       additionalProperties: false
@@ -563,3 +372,4 @@ components:
           type: string
           enum:
             - ready
+            - not_ready
