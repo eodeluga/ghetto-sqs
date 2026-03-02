@@ -25,7 +25,6 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
     queueName: string
     receiptHandleHash: string | null
     receiveCount: number
-    serviceUserUuid: string
     sourceQueueName: string | null
     visibilityChangeCount: number
     visibleAt: Date
@@ -41,7 +40,6 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
       queueName: queueMessageRecord.queueName,
       receiptHandleHash: queueMessageRecord.receiptHandleHash,
       receiveCount: queueMessageRecord.receiveCount,
-      serviceUserUuid: queueMessageRecord.serviceUserUuid,
       sourceQueueName: queueMessageRecord.sourceQueueName,
       visibilityChangeCount: queueMessageRecord.visibilityChangeCount,
       visibleAt: queueMessageRecord.visibleAt,
@@ -66,7 +64,6 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
       where: {
         id: claimQueueMessageInput.messageId,
         queueName: claimQueueMessageInput.queueName,
-        serviceUserUuid: claimQueueMessageInput.serviceUserUuid,
         visibleAt: {
           lte: claimQueueMessageInput.claimableAt,
         },
@@ -85,7 +82,6 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         messageDeduplicationId: createQueueMessageInput.messageDeduplicationId,
         messageGroupId: createQueueMessageInput.messageGroupId,
         queueName: createQueueMessageInput.queueName,
-        serviceUserUuid: createQueueMessageInput.serviceUserUuid,
         visibilityChangeCount: 0,
         visibleAt: createQueueMessageInput.visibleAt,
       },
@@ -102,19 +98,17 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         id: deleteQueueMessageByReceiptHandleInput.messageId,
         queueName: deleteQueueMessageByReceiptHandleInput.queueName,
         receiptHandleHash: deleteQueueMessageByReceiptHandleInput.receiptHandleHash,
-        serviceUserUuid: deleteQueueMessageByReceiptHandleInput.serviceUserUuid,
       },
     })
 
     return deleteResult.count === 1
   }
 
-  async deleteQueueMessageById(messageId: string, queueName: string, serviceUserUuid: string): Promise<boolean> {
+  async deleteQueueMessageById(messageId: string, queueName: string): Promise<boolean> {
     const deleteResult = await this.prismaClient.queueMessage.deleteMany({
       where: {
         id: messageId,
         queueName,
-        serviceUserUuid,
       },
     })
 
@@ -134,7 +128,6 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         },
         messageDeduplicationId: findRecentMessageByDeduplicationIdInput.messageDeduplicationId,
         queueName: findRecentMessageByDeduplicationIdInput.queueName,
-        serviceUserUuid: findRecentMessageByDeduplicationIdInput.serviceUserUuid,
       },
     })
 
@@ -148,15 +141,13 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
   async getQueueMessageByReceiptHandle(
     messageId: string,
     queueName: string,
-    receiptHandleHash: string,
-    serviceUserUuid: string
+    receiptHandleHash: string
   ): Promise<QueueMessageRecord | null> {
     const queueMessageRecord = await this.prismaClient.queueMessage.findFirst({
       where: {
         id: messageId,
         queueName,
         receiptHandleHash,
-        serviceUserUuid,
       },
     })
 
@@ -177,7 +168,6 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         },
         messageGroupId: hasInflightMessageInFifoGroupInput.messageGroupId,
         queueName: hasInflightMessageInFifoGroupInput.queueName,
-        serviceUserUuid: hasInflightMessageInFifoGroupInput.serviceUserUuid,
         visibleAt: {
           gt: hasInflightMessageInFifoGroupInput.visibleAtAfter,
         },
@@ -195,7 +185,6 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
       take: listVisibleQueueMessagesInput.limit,
       where: {
         queueName: listVisibleQueueMessagesInput.queueName,
-        serviceUserUuid: listVisibleQueueMessagesInput.serviceUserUuid,
         visibleAt: {
           lte: listVisibleQueueMessagesInput.visibleAtOrBefore,
         },
@@ -224,21 +213,19 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
       where: {
         id: moveQueueMessageToDeadLetterQueueInput.messageId,
         queueName: moveQueueMessageToDeadLetterQueueInput.queueName,
-        serviceUserUuid: moveQueueMessageToDeadLetterQueueInput.serviceUserUuid,
       },
     })
 
     return updateResult.count === 1
   }
 
-  async purgeExpiredQueueMessages(olderThanOrEqualTo: Date, queueName: string, serviceUserUuid: string): Promise<number> {
+  async purgeExpiredQueueMessages(olderThanOrEqualTo: Date, queueName: string): Promise<number> {
     const deleteResult = await this.prismaClient.queueMessage.deleteMany({
       where: {
         createdAt: {
           lte: olderThanOrEqualTo,
         },
         queueName,
-        serviceUserUuid,
       },
     })
 
@@ -259,7 +246,6 @@ class PrismaQueueMessageRepositoryService implements QueueMessageRepositoryInter
         id: setQueueMessageVisibilityByReceiptHandleInput.messageId,
         queueName: setQueueMessageVisibilityByReceiptHandleInput.queueName,
         receiptHandleHash: setQueueMessageVisibilityByReceiptHandleInput.receiptHandleHash,
-        serviceUserUuid: setQueueMessageVisibilityByReceiptHandleInput.serviceUserUuid,
       },
     })
 

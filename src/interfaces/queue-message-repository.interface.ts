@@ -4,7 +4,6 @@ interface ClaimQueueMessageInput {
   nextReceiptHandleHash: string
   nextVisibleAt: Date
   queueName: string
-  serviceUserUuid: string
 }
 
 interface CreateQueueMessageInput {
@@ -14,7 +13,6 @@ interface CreateQueueMessageInput {
   messageDeduplicationId: string | null
   messageGroupId: string | null
   queueName: string
-  serviceUserUuid: string
   visibleAt: Date
 }
 
@@ -22,28 +20,24 @@ interface DeleteQueueMessageByReceiptHandleInput {
   messageId: string
   queueName: string
   receiptHandleHash: string
-  serviceUserUuid: string
 }
 
 interface FindRecentMessageByDeduplicationIdInput {
   createdAtOrAfter: Date
   messageDeduplicationId: string
   queueName: string
-  serviceUserUuid: string
 }
 
 interface HasInflightMessageInFifoGroupInput {
   createdAtBefore: Date
   messageGroupId: string
   queueName: string
-  serviceUserUuid: string
   visibleAtAfter: Date
 }
 
 interface ListVisibleQueueMessagesInput {
   limit: number
   queueName: string
-  serviceUserUuid: string
   visibleAtOrBefore: Date
 }
 
@@ -51,7 +45,6 @@ interface MoveQueueMessageToDeadLetterQueueInput {
   deadLetterQueueName: string
   messageId: string
   queueName: string
-  serviceUserUuid: string
 }
 
 interface QueueMessageRecord {
@@ -65,7 +58,6 @@ interface QueueMessageRecord {
   queueName: string
   receiptHandleHash: string | null
   receiveCount: number
-  serviceUserUuid: string
   sourceQueueName: string | null
   visibilityChangeCount: number
   visibleAt: Date
@@ -75,14 +67,13 @@ interface SetQueueMessageVisibilityByReceiptHandleInput {
   messageId: string
   queueName: string
   receiptHandleHash: string
-  serviceUserUuid: string
   visibleAt: Date
 }
 
 interface QueueMessageRepositoryInterface {
   claimQueueMessageById(claimQueueMessageInput: ClaimQueueMessageInput): Promise<boolean>
   createQueueMessage(createQueueMessageInput: CreateQueueMessageInput): Promise<QueueMessageRecord>
-  deleteQueueMessageById(messageId: string, queueName: string, serviceUserUuid: string): Promise<boolean>
+  deleteQueueMessageById(messageId: string, queueName: string): Promise<boolean>
   deleteQueueMessageByReceiptHandle(
     deleteQueueMessageByReceiptHandleInput: DeleteQueueMessageByReceiptHandleInput
   ): Promise<boolean>
@@ -92,8 +83,7 @@ interface QueueMessageRepositoryInterface {
   getQueueMessageByReceiptHandle(
     messageId: string,
     queueName: string,
-    receiptHandleHash: string,
-    serviceUserUuid: string
+    receiptHandleHash: string
   ): Promise<QueueMessageRecord | null>
   hasInflightMessageInFifoGroup(
     hasInflightMessageInFifoGroupInput: HasInflightMessageInFifoGroupInput
@@ -102,7 +92,7 @@ interface QueueMessageRepositoryInterface {
   moveQueueMessageToDeadLetterQueue(
     moveQueueMessageToDeadLetterQueueInput: MoveQueueMessageToDeadLetterQueueInput
   ): Promise<boolean>
-  purgeExpiredQueueMessages(olderThanOrEqualTo: Date, queueName: string, serviceUserUuid: string): Promise<number>
+  purgeExpiredQueueMessages(olderThanOrEqualTo: Date, queueName: string): Promise<number>
   setQueueMessageVisibilityByReceiptHandle(
     setQueueMessageVisibilityByReceiptHandleInput: SetQueueMessageVisibilityByReceiptHandleInput
   ): Promise<QueueMessageRecord | null>

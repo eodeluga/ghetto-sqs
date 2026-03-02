@@ -8,7 +8,6 @@ import {
 import { QueueMessageService } from '@/services/queue-message.service'
 
 const DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 30
-const PUBLIC_SERVICE_USER_UUID = '00000000-0000-0000-0000-000000000000'
 
 class ReceiveMessagesHandler {
   constructor(private readonly queueMessageService: QueueMessageService = new QueueMessageService()) {}
@@ -29,7 +28,6 @@ class ReceiveMessagesHandler {
     const receiveMessagesResponse = await this.queueMessageService.receiveMessages({
       maxMessages: queryParseResult.data.maxMessages,
       queueName: pathParamsParseResult.data.queueName,
-      serviceUserUuid: PUBLIC_SERVICE_USER_UUID,
       visibilityTimeoutSeconds: queryParseResult.data.visibilityTimeoutSeconds
         ?? DEFAULT_VISIBILITY_TIMEOUT_SECONDS,
     })
