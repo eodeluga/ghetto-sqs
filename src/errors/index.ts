@@ -1,6 +1,5 @@
 export { BaseError, type BaseErrorInput } from '@/errors/base.error'
 export { InternalServerError } from '@/errors/internal-server.error'
-export { MessageNotFoundError } from '@/errors/message-not-found.error'
 export { ReceiptHandleInvalidError } from '@/errors/receipt-handle-invalid.error'
 export { ServiceUnavailableError } from '@/errors/service-unavailable.error'
 export { ValidationError } from '@/errors/validation.error'

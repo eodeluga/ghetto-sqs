@@ -99,6 +99,17 @@ Start server:
 bun run start
 ```
 
+## Release Hardening Checklist
+
+Before release, run:
+
+```bash
+bun run lint
+bun run typecheck
+bun run test
+bun run build
+```
+
 ## OpenAPI
 
 Complete API documentation is defined in `openapi/openapi.yaml`.

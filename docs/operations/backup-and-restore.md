@@ -19,7 +19,7 @@ mongodump --uri "$DATABASE_URL" --db ghetto_sqs --archive=backup-$(date +%Y%m%d%
 ## Restore
 
 1. Restore to an isolated environment first.
-2. Validate queue and handle record counts.
+2. Validate queue message and audit event record counts.
 3. Run smoke tests against restored data.
 4. Promote restored environment only after validation.
 

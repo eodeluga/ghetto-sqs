@@ -3,9 +3,9 @@
 ## Rollout Sequence
 
 1. Generate Prisma client:
-   - `bun run generate`
+   - `bun run prisma:generate`
 2. Apply schema updates to staging:
-   - `bunx prisma db push`
+   - `bun run prisma:push`
 3. Verify new indexes exist and queries use expected plans.
 4. Run integration tests against staging.
 5. Deploy application and schema changes to production during a controlled window.
