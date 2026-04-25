@@ -7,11 +7,14 @@ services:
         DATABASE_URL: ${DATABASE_URL}
     container_name: ghetto-sqs
     restart: unless-stopped
+    env_file:
+      - .env.dev
+    ports:
+      - "7805:7805"
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       PORT: ${PORT}
-    env_file:
-      - .env.dev
+      HOST: "0.0.0.0"
     command: >
       bash -c 'npx prisma db push && npm start'
     networks:
