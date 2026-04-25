@@ -34,7 +34,7 @@ Example:
 export DATABASE_URL="mongodb://localhost:27017/ghetto_sqs"
 export HOST="0.0.0.0"
 export LOG_LEVEL="info"
-export PORT="3000"
+export PORT="7805"
 ```
 
 ## Docker Compose
