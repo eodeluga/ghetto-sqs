@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": "./",
     "declaration": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -10,7 +9,8 @@
     "moduleResolution": "bundler",
     "noEmitOnError": true,
     "noImplicitAny": false,
-    "outDir": "./dist",
+    "rootDir": ".",
+    "outDir": "dist",
     "paths": {
       "@/*": [
         "./src/*"
@@ -30,6 +30,7 @@
     "node_modules"
   ],
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "test/**/*.ts"
   ]
 }
